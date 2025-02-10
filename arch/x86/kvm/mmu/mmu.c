@@ -6350,6 +6350,9 @@ int kvm_mmu_create(struct kvm_vcpu *vcpu)
 	return ret;
 }
 
+// CSE192 mention of a fifo list for active_mmu_pages
+// Seems like active_mmu_pages is FIFO, not LRU. Update it as such?
+
 #define BATCH_ZAP_PAGES	10
 static void kvm_zap_obsolete_pages(struct kvm *kvm)
 {
