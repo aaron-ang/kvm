@@ -1,0 +1,13 @@
+# CSE 291 rdme
+
+### 0. Boot branched kernel
+
+### 1. Initialize Avocado-VT testing suite
+
+### 2. Set up vm for KVM
+
+### 4. run VM, ensure pg_Err debug logs seen in dmesg
+
+### 5. Review flagged comments on code
+
+
