@@ -2216,23 +2216,23 @@ static struct kvm_mmu_page *kvm_mmu_alloc_shadow_page(struct kvm *kvm,
 {
 	struct kvm_mmu_page *sp;
 
-	sp = kvm_mmu_memory_cache_alloc(caches->page_header_cache);
-	sp->spt = kvm_mmu_memory_cache_alloc(caches->shadow_page_cache);
-	if (!role.direct && role.level <= KVM_MAX_HUGEPAGE_LEVEL)
+	sp = kvm_mmu_memory_cache_alloc(caches->page_header_cache); // alloc the page
+	sp->spt = kvm_mmu_memory_cache_alloc(caches->shadow_page_cache); // alloc the shadow page
+	if (!role.direct && role.level <= KVM_MAX_HUGEPAGE_LEVEL) // ??
 		sp->shadowed_translation = kvm_mmu_memory_cache_alloc(caches->shadowed_info_cache);
 
-	set_page_private(virt_to_page(sp->spt), (unsigned long)sp);
+	set_page_private(virt_to_page(sp->spt), (unsigned long)sp); // set to private the virt to page
 
-	INIT_LIST_HEAD(&sp->possible_nx_huge_page_link);
+	INIT_LIST_HEAD(&sp->possible_nx_huge_page_link); // init the nx huge page tabl (see other)
 
 	/*
-	 * active_mmu_pages must be a FIFO list, as kvm_zap_obsolete_pages()
+	 * active_mmu_pages must be a FIFO list, as kvm_zap_obsolete_pages() cse291: this is what we need to optimize likely, make it so that valid pages on head is not a req.
 	 * depends on valid pages being added to the head of the list.  See
 	 * comments in kvm_zap_obsolete_pages().
 	 */
-	sp->mmu_valid_gen = kvm->arch.mmu_valid_gen;
-	list_add(&sp->link, &kvm->arch.active_mmu_pages);
-	kvm_account_mmu_page(kvm, sp);
+	sp->mmu_valid_gen = kvm->arch.mmu_valid_gen; 
+	list_add(&sp->link, &kvm->arch.active_mmu_pages); // add active mmu pages
+	kvm_account_mmu_page(kvm, sp); // ??
 
 	sp->gfn = gfn;
 	sp->role = role;
@@ -2541,6 +2541,9 @@ static int mmu_zap_unsync_children(struct kvm *kvm,
 	return zapped;
 }
 
+
+// prepare to zap a page from a table (used by active mmu pages)
+
 static bool __kvm_mmu_prepare_zap_page(struct kvm *kvm,
 				       struct kvm_mmu_page *sp,
 				       struct list_head *invalid_list,
@@ -2653,7 +2656,7 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 		return 0;
 
 restart:
-	list_for_each_entry_safe_reverse(sp, tmp, &kvm->arch.active_mmu_pages, link) {
+	list_for_each_entry_safe_reverse(sp, tmp, &kvm->arch.active_mmu_pages, link) { // iter the list backwards. (since its newest head, oldest first lol)
 		/*
 		 * Don't zap active root pages, the page itself can't be freed
 		 * and zapping it will just force vCPUs to realloc and reload.
@@ -2671,7 +2674,7 @@ restart:
 			goto restart;
 	}
 
-	kvm_mmu_commit_zap_page(kvm, &invalid_list);
+	kvm_mmu_commit_zap_page(kvm, &invalid_list); // commit the zap after prer and iter
 
 	kvm->stat.mmu_recycled += total_zapped;
 	return total_zapped;
@@ -6406,18 +6409,20 @@ int kvm_mmu_create(struct kvm_vcpu *vcpu)
 // Seems like active_mmu_pages is FIFO, not LRU. Update it as such?
 
 #define BATCH_ZAP_PAGES	10
-static void kvm_zap_obsolete_pages(struct kvm *kvm)
+static void kvm_zap_obsolete_pages(struct kvm *kvm) // this is diff from zap oldest how?
 {
 	struct kvm_mmu_page *sp, *node;
 	int nr_zapped, batch = 0;
 	bool unstable;
+	pr_err("zapping pages\n");
+	lockdep_assert_held(&kvm->slots_lock);
 
 restart:
 	list_for_each_entry_safe_reverse(sp, node,
 	      &kvm->arch.active_mmu_pages, link) {
 		/*
 		 * No obsolete valid page exists before a newly created page
-		 * since active_mmu_pages is a FIFO list.
+		 * since active_mmu_pages is a FIFO list.  OPTIMIZE THIS
 		 */
 		if (!is_obsolete_sp(kvm, sp))
 			break;
@@ -6530,8 +6535,7 @@ static bool kvm_has_zapped_obsolete_pages(struct kvm *kvm)
 void kvm_mmu_init_vm(struct kvm *kvm)
 {
 	kvm->arch.shadow_mmio_value = shadow_mmio_value;
-	INIT_LIST_HEAD(&kvm->arch.active_mmu_pages);
-	INIT_LIST_HEAD(&kvm->arch.zapped_obsolete_pages);
+	INIT_LIST_HEAD(&kvm->arch.active_mmu_pages); // Initialized active_mmu_pages_struct
 	INIT_LIST_HEAD(&kvm->arch.possible_nx_huge_pages);
 	spin_lock_init(&kvm->arch.mmu_unsync_pages_lock);
 
@@ -7030,13 +7034,13 @@ static void kvm_mmu_zap_all(struct kvm *kvm)
 
 	write_lock(&kvm->mmu_lock);
 restart:
-	list_for_each_entry_safe(sp, node, &kvm->arch.active_mmu_pages, link) {
-		if (WARN_ON_ONCE(sp->role.invalid))
+	list_for_each_entry_safe(sp, node, &kvm->arch.active_mmu_pages, link) { // iter all active mmu pages if 
+		if (WARN_ON_ONCE(sp->role.invalid)) // if invalid page, file a bug
 			continue;
-		if (__kvm_mmu_prepare_zap_page(kvm, sp, &invalid_list, &ign))
+		if (__kvm_mmu_prepare_zap_page(kvm, sp, &invalid_list, &ign)) // if 
 			goto restart;
 		if (cond_resched_rwlock_write(&kvm->mmu_lock))
-			goto restart;
+			goto restart; 
 	}
 
 	kvm_mmu_commit_zap_page(kvm, &invalid_list);
@@ -7052,14 +7056,42 @@ void kvm_arch_flush_shadow_all(struct kvm *kvm)
 	kvm_mmu_zap_all(kvm);
 }
 
-/*
- * Zapping leaf SPTEs with memslot range when a memslot is moved/deleted.
- *
- * Zapping non-leaf SPTEs, a.k.a. not-last SPTEs, isn't required, worst
- * case scenario we'll have unused shadow pages lying around until they
- * are recycled due to age or when the VM is destroyed.
- */
-static void kvm_mmu_zap_memslot_leafs(struct kvm *kvm, struct kvm_memory_slot *slot)
+static void kvm_mmu_zap_memslot_pages_and_flush(struct kvm *kvm,
+						struct kvm_memory_slot *slot,
+						bool flush)
+{
+	LIST_HEAD(invalid_list);
+	unsigned long i;
+
+	if (list_empty(&kvm->arch.active_mmu_pages)) 
+		goto out_flush;
+
+	/*
+	 * Since accounting information is stored in struct kvm_arch_memory_slot,
+	 * all MMU pages that are shadowing guest PTEs must be zapped before the
+	 * memslot is deleted, as freeing such pages after the memslot is freed
+	 * will result in use-after-free, e.g. in unaccount_shadowed().
+	 */
+	for (i = 0; i < slot->npages; i++) {
+		struct kvm_mmu_page *sp;
+		gfn_t gfn = slot->base_gfn + i;
+
+		for_each_gfn_valid_sp_with_gptes(kvm, sp, gfn)
+			kvm_mmu_prepare_zap_page(kvm, sp, &invalid_list);
+
+		if (need_resched() || rwlock_needbreak(&kvm->mmu_lock)) {
+			kvm_mmu_remote_flush_or_zap(kvm, &invalid_list, flush);
+			flush = false;
+			cond_resched_rwlock_write(&kvm->mmu_lock);
+		}
+	}
+
+out_flush:
+	kvm_mmu_remote_flush_or_zap(kvm, &invalid_list, flush);
+}
+
+static void kvm_mmu_zap_memslot(struct kvm *kvm,
+				struct kvm_memory_slot *slot)
 {
 	struct kvm_gfn_range range = {
 		.slot = slot,
@@ -7401,6 +7433,8 @@ static int set_nx_huge_pages_recovery_param(const char *val, const struct kernel
 	return err;
 }
 
+
+// need look what this is, prvent breaking but ikely not impl
 static void kvm_recover_nx_huge_pages(struct kvm *kvm)
 {
 	unsigned long nx_lpage_splits = kvm->stat.nx_lpage_splits;
