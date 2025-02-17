@@ -57,6 +57,8 @@ struct kvm_mmu_page {
 	struct list_head link;
 	struct hlist_node hash_link;
 
+	unsigned int page_access_count; // New field to track how frequently the page is accessed
+
 	bool tdp_mmu_page;
 	bool unsync;
 	union {
@@ -319,6 +321,11 @@ static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 	if (vcpu->arch.mmu->root_role.direct) {
 		fault.gfn = fault.addr >> PAGE_SHIFT;
 		fault.slot = kvm_vcpu_gfn_to_memslot(vcpu, fault.gfn);
+		if (fault.slot) {
+			struct kvm_mmu_page *sp = kvm_mmu_get_page(vcpu, fault.gfn);
+			if (sp)
+				sp->page_access_count++; // Increment access count
+		}
 	}
 
 	if (IS_ENABLED(CONFIG_MITIGATION_RETPOLINE) && fault.is_tdp)

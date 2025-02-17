@@ -2567,7 +2567,48 @@ static void kvm_mmu_commit_zap_page(struct kvm *kvm,
 	}
 }
 
-static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
+static unsigned long kvm_mmu_zap_least_used_pages(struct kvm *kvm,
+	unsigned long nr_to_zap)
+{
+	unsigned long total_zapped = 0;
+	struct kvm_mmu_page *sp, *tmp, *least_used = NULL;
+	LIST_HEAD(invalid_list);
+	bool unstable;
+	int nr_zapped;
+	unsigned int min_age = UINT_MAX; // Track least-used page
+
+	if (list_empty(&kvm->arch.active_mmu_pages))
+	return 0;
+
+restart:
+	list_for_each_entry_safe(sp, tmp, &kvm->arch.active_mmu_pages, link) {
+	if (sp->root_count)
+		continue;
+
+	// Track the least-used page
+	if (sp->age_count < min_age) {
+		min_age = sp->age_count;
+		least_used = sp;
+	}
+	}
+
+	if (!least_used)
+		return 0; // No suitable page found
+
+	// Evict the least frequently used page
+	unstable = __kvm_mmu_prepare_zap_page(kvm, least_used, &invalid_list, &nr_zapped);
+	total_zapped += nr_zapped;
+
+	if (unstable)
+		goto restart;
+
+	kvm_mmu_commit_zap_page(kvm, &invalid_list);
+	kvm->stat.mmu_recycled += total_zapped;
+	return total_zapped;
+}
+
+
+static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm, // iterates over active (mmu) pages list, calls kvm_mmu_commit_zap_page fn to remove page
 						  unsigned long nr_to_zap)
 {
 	unsigned long total_zapped = 0;
