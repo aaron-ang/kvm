@@ -108,7 +108,7 @@ bool tdp_enabled = false;
 static bool __ro_after_init tdp_mmu_allowed;
 
 #ifdef CONFIG_X86_64
-bool __read_mostly tdp_mmu_enabled = false;
+bool tdp_mmu_enabled = false;
 module_param_named(tdp_mmu, tdp_mmu_enabled, bool, 0444);
 #endif
 
@@ -5499,7 +5499,7 @@ static void init_kvm_tdp_mmu(struct kvm_vcpu *vcpu,
 	if (cpu_role.as_u64 == context->cpu_role.as_u64 &&
 	    root_role.word == context->root_role.word)
 		return;
-
+	pr_err("absolutely not\n");
 	context->cpu_role.as_u64 = cpu_role.as_u64;
 	context->root_role.word = root_role.word;
 	context->page_fault = kvm_tdp_page_fault;
@@ -5650,7 +5650,7 @@ static void init_kvm_softmmu(struct kvm_vcpu *vcpu,
 			     union kvm_cpu_role cpu_role)
 {
 	struct kvm_mmu *context = &vcpu->arch.root_mmu;
-
+	pr_err("softmmu\n");
 	kvm_init_shadow_mmu(vcpu, cpu_role);
 
 	context->get_guest_pgd     = get_guest_cr3;
@@ -5701,7 +5701,7 @@ void kvm_init_mmu(struct kvm_vcpu *vcpu)
 {
 	struct kvm_mmu_role_regs regs = vcpu_to_role_regs(vcpu);
 	union kvm_cpu_role cpu_role = kvm_calc_cpu_role(vcpu, &regs);
-
+	pr_err("tdp ena is %d\n", tdp_enabled);
 	if (mmu_is_nested(vcpu))
 		init_kvm_nested_mmu(vcpu, cpu_role);
 	else if (tdp_enabled)
@@ -6288,7 +6288,7 @@ void kvm_mmu_invpcid_gva(struct kvm_vcpu *vcpu, gva_t gva, unsigned long pcid)
 void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
 		       int tdp_max_root_level, int tdp_huge_page_level)
 {
-	tdp_enabled = enable_tdp;
+	tdp_enabled = false;
 	tdp_root_level = tdp_forced_root_level;
 	max_tdp_level = tdp_max_root_level;
 
@@ -6539,9 +6539,10 @@ void kvm_mmu_init_vm(struct kvm *kvm)
 	INIT_LIST_HEAD(&kvm->arch.possible_nx_huge_pages);
 	spin_lock_init(&kvm->arch.mmu_unsync_pages_lock);
 
-	if (tdp_mmu_enabled)
+	if (tdp_mmu_enabled) {
+		pr_err("we should not see this \n");
 		kvm_mmu_init_tdp_mmu(kvm);
-
+	}
 	kvm->arch.split_page_header_cache.kmem_cache = mmu_page_header_cache;
 	kvm->arch.split_page_header_cache.gfp_zero = __GFP_ZERO;
 
