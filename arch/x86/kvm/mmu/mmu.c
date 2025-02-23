@@ -2117,6 +2117,39 @@ static void clear_sp_write_flooding_count(u64 *spte)
 	__clear_sp_write_flooding_count(sptep_to_sp(spte));
 }
 
+
+
+void logsp4(struct kvm_vcpu *vcpu){
+	struct kvm_mmu_page *sp;
+	LIST_HEAD(invalid_list);
+	struct kvm *k = vcpu->kvm;
+	struct kvm_arch *karch = &(k->arch);
+	pr_err("used pages %lu, reqd pages %lu, max pages %lu, inderict shadow pages %u", karch->n_used_mmu_pages, karch->n_requested_mmu_pages, karch->n_max_mmu_pages, karch->indirect_shadow_pages);
+	for_each_valid_sp(k, sp, karch->mmu_page_hash) {
+		pr_err("sp data, tdp(should 0), %d, %llu", sp->tdp_mmu_page, sp->gfn);
+		union kvm_mmu_page_role role = sp->role;
+
+		pr_info("kvm_mmu_page_role flags:\n");
+		pr_info("  level: %u\n", role.level);
+		pr_info("  has_4_byte_gpte: %u\n", role.has_4_byte_gpte);
+		pr_info("  quadrant: %u\n", role.quadrant);
+		pr_info("  direct: %u\n", role.direct);
+		pr_info("  access: %u\n", role.access);
+		pr_info("  invalid: %u\n", role.invalid);
+		pr_info("  efer_nx: %u\n", role.efer_nx);
+		pr_info("  cr0_wp: %u\n", role.cr0_wp);
+		pr_info("  smep_andnot_wp: %u\n", role.smep_andnot_wp);
+		pr_info("  smap_andnot_wp: %u\n", role.smap_andnot_wp);
+		pr_info("  ad_disabled: %u\n", role.ad_disabled);
+		pr_info("  guest_mode: %u\n", role.guest_mode);
+		pr_info("  passthrough: %u\n", role.passthrough);
+		pr_info("  smm: %u\n", role.smm);
+
+	
+	}
+
+}
+
 /*
  * The vCPU is required when finding indirect shadow pages; the shadow
  * page may already exist and syncing it needs the vCPU pointer in
@@ -5529,7 +5562,8 @@ static void shadow_mmu_init_context(struct kvm_vcpu *vcpu, struct kvm_mmu *conte
 
 	context->cpu_role.as_u64 = cpu_role.as_u64;
 	context->root_role.word = root_role.word;
-
+	pr_err("initing shadow mmu for %d\n", vcpu->vcpu_idx);
+	logsp4(vcpu);
 	if (!is_cr0_pg(context))
 		nonpaging_init_context(context);
 	else if (is_cr4_pae(context))
@@ -5546,7 +5580,7 @@ static void kvm_init_shadow_mmu(struct kvm_vcpu *vcpu,
 {
 	struct kvm_mmu *context = &vcpu->arch.root_mmu;
 	union kvm_mmu_page_role root_role;
-
+	pr_err("init shadow mmu %d\n", vcpu->vcpu_id);
 	root_role = cpu_role.base;
 
 	/* KVM uses PAE paging whenever the guest isn't using 64-bit paging. */
@@ -5650,7 +5684,7 @@ static void init_kvm_softmmu(struct kvm_vcpu *vcpu,
 			     union kvm_cpu_role cpu_role)
 {
 	struct kvm_mmu *context = &vcpu->arch.root_mmu;
-	pr_err("softmmu\n");
+	pr_err("softmmu for %d\n", vcpu->vcpu_idx);
 	kvm_init_shadow_mmu(vcpu, cpu_role);
 
 	context->get_guest_pgd     = get_guest_cr3;
@@ -6362,8 +6396,10 @@ static int __kvm_mmu_create(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu)
 	 * the C-bit even when shadowing 32-bit NPT, and SME isn't supported
 	 * by 32-bit kernels (when KVM itself uses 32-bit NPT).
 	 */
-	if (!tdp_enabled)
+	if (!tdp_enabled){
+		pr_err("decrypt mem\n");
 		set_memory_decrypted((unsigned long)mmu->pae_root, 1);
+	}		
 	else
 		WARN_ON_ONCE(shadow_me_value);
 
