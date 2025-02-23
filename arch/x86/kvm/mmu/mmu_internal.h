@@ -414,5 +414,5 @@ void disallowed_hugepage_adjust(struct kvm_page_fault *fault, u64 spte, int cur_
 
 void track_possible_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp);
 void untrack_possible_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp);
-
+void logsp4(struct kvm_vcpu *vcpu);
 #endif /* __KVM_X86_MMU_INTERNAL_H */
