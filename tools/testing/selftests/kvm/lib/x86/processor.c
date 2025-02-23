@@ -116,7 +116,6 @@ static void sregs_dump(FILE *stream, struct kvm_sregs *sregs, uint8_t indent)
 
 bool kvm_is_tdp_enabled(void)
 {
-	return false;
 	if (host_cpu_is_intel)
 		return get_kvm_intel_param_bool("ept");
 	else
