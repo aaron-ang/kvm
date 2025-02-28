@@ -93,7 +93,7 @@
 
 	/* Load Guest GPRs */
 	kvm_restore_guest_gprs a2
-	/* Load KVM_ARCH register */
+	/* Load register */
 	ld.d	a2, a2,	(KVM_ARCH_GGPR + 8 * REG_A2)
 
 	ertn /* Switch to guest: GSTAT.PGM = 1, ERRCTL.ISERR = 0, TLBRPRMD.ISTLBR = 0 */

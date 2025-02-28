@@ -2049,15 +2049,17 @@ static void clear_sp_write_flooding_count(u64 *spte)
 }
 
 
-
+// 291: print all diag info for the karch for this vcpu(each vm has own karch)
 void logsp4(struct kvm_vcpu *vcpu){
 	struct kvm_mmu_page *sp;
 	LIST_HEAD(invalid_list);
 	struct kvm *k = vcpu->kvm;
 	struct kvm_arch *karch = &(k->arch);
-	pr_err("used pages %lu, reqd pages %lu, max pages %lu, inderict shadow pages %u", karch->n_used_mmu_pages, karch->n_requested_mmu_pages, karch->n_max_mmu_pages, karch->indirect_shadow_pages);
+	karch->countstuff += 1;
+	// karch->n_max_mmu_pages = 100; 291, for testing, ignore
+	pr_err("used pages %lu, reqd pages %lu, max pages %lu, inderict shadow pages %u, countstuff, %lu", karch->n_used_mmu_pages, karch->n_requested_mmu_pages, karch->n_max_mmu_pages, karch->indirect_shadow_pages, karch->countstuff);
 	for_each_valid_sp(k, sp, karch->mmu_page_hash) {
-		pr_err("sp data, tdp(should 0), %d, %llu", sp->tdp_mmu_page, sp->gfn);
+		pr_err("sp data, tdp(should 0), %d, gfn is %llu", sp->tdp_mmu_page, sp->gfn);
 		union kvm_mmu_page_role role = sp->role;
 
 		pr_info("kvm_mmu_page_role flags:\n");
@@ -2506,7 +2508,7 @@ static int mmu_zap_unsync_children(struct kvm *kvm,
 }
 
 
-// prepare to zap a page from a table (used by active mmu pages)
+// prepare to zap a page from a table (used by active mmu pages) 291
 
 static bool __kvm_mmu_prepare_zap_page(struct kvm *kvm,
 				       struct kvm_mmu_page *sp,
@@ -2607,6 +2609,9 @@ static void kvm_mmu_commit_zap_page(struct kvm *kvm,
 	}
 }
 
+
+//CSE 291 relook here
+
 static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 						  unsigned long nr_to_zap)
 {
@@ -2614,6 +2619,7 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 	struct kvm_mmu_page *sp, *tmp;
 	LIST_HEAD(invalid_list);
 	bool unstable;
+	pr_err("zapping pages\n");
 	int nr_zapped;
 
 	if (list_empty(&kvm->arch.active_mmu_pages))
@@ -2653,6 +2659,8 @@ static inline unsigned long kvm_mmu_available_pages(struct kvm *kvm)
 	return 0;
 }
 
+
+// Check here: makes pages avail, currently calls oldest 291
 static int make_mmu_pages_available(struct kvm_vcpu *vcpu)
 {
 	unsigned long avail = kvm_mmu_available_pages(vcpu->kvm);
@@ -2755,7 +2763,7 @@ static void kvm_unsync_page(struct kvm *kvm, struct kvm_mmu_page *sp)
  * Attempt to unsync any shadow pages that can be reached by the specified gfn,
  * KVM is creating a writable mapping for said gfn.  Returns 0 if all pages
  * were marked unsync (or if there is no shadow page), -EPERM if the SPTE must
- * be write-protected.
+ * be write-protected. 291
  */
 int mmu_try_to_unsync_pages(struct kvm *kvm, const struct kvm_memory_slot *slot,
 			    gfn_t gfn, bool synchronizing, bool prefetch)
