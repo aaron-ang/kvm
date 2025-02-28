@@ -1301,6 +1301,7 @@ struct kvm_arch {
 	unsigned int indirect_shadow_pages;
 	u8 mmu_valid_gen;
 	u8 vm_type;
+	unsigned long int countstuff;
 	bool has_private_mem;
 	bool has_protected_state;
 	bool pre_fault_allowed;
