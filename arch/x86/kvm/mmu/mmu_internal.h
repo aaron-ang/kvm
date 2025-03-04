@@ -54,6 +54,7 @@ struct kvm_mmu_page {
 	 * Note, "link" through "spt" fit in a single 64 byte cache line on
 	 * 64-bit kernels, keep it that way unless there's a reason not to.
 	 */
+	int second_chance;
 	struct list_head link;
 	struct hlist_node hash_link;
 

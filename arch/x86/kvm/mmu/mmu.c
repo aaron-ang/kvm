@@ -2125,10 +2125,11 @@ void logsp4(struct kvm_vcpu *vcpu){
 	struct kvm *k = vcpu->kvm;
 	struct kvm_arch *karch = &(k->arch);
 	karch->countstuff += 1;
+	karch->n_max_mmu_pages = 40;
 	// karch->n_max_mmu_pages = 100; 291, for testing, ignore
-	pr_err("used pages %lu, reqd pages %lu, max pages %lu, inderict shadow pages %u, countstuff, %lu", karch->n_used_mmu_pages, karch->n_requested_mmu_pages, karch->n_max_mmu_pages, karch->indirect_shadow_pages, karch->countstuff);
+	pr_warn("used pages %lu, reqd pages %lu, max pages %lu, inderict shadow pages %u, countstuff, %lu", karch->n_used_mmu_pages, karch->n_requested_mmu_pages, karch->n_max_mmu_pages, karch->indirect_shadow_pages, karch->countstuff);
 	for_each_valid_sp(k, sp, karch->mmu_page_hash) {
-		pr_err("sp data, tdp(should 0), %d, gfn is %llu", sp->tdp_mmu_page, sp->gfn);
+		pr_warn("sp data, tdp(should 0), %d, gfn is %llu", sp->tdp_mmu_page, sp->gfn);
 		union kvm_mmu_page_role role = sp->role;
 
 		pr_info("kvm_mmu_page_role flags:\n");
@@ -2259,7 +2260,7 @@ static struct kvm_mmu_page *kvm_mmu_alloc_shadow_page(struct kvm *kvm,
 	set_page_private(virt_to_page(sp->spt), (unsigned long)sp); // set to private the virt to page
 
 	INIT_LIST_HEAD(&sp->possible_nx_huge_page_link); // init the nx huge page tabl (see other)
-
+	sp->second_chance = 1;
 	/*
 	 * active_mmu_pages must be a FIFO list, as kvm_zap_obsolete_pages() cse291: this is what we need to optimize likely, make it so that valid pages on head is not a req.
 	 * depends on valid pages being added to the head of the list.  See
@@ -2688,7 +2689,7 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 	struct kvm_mmu_page *sp, *tmp;
 	LIST_HEAD(invalid_list);
 	bool unstable;
-	pr_err("zapping pages\n");
+	pr_warn("zapping pages\n");
 	int nr_zapped;
 
 	if (list_empty(&kvm->arch.active_mmu_pages))
@@ -2700,17 +2701,24 @@ restart:
 		 * Don't zap active root pages, the page itself can't be freed
 		 * and zapping it will just force vCPUs to realloc and reload.
 		 */
-		if (sp->root_count)
+		if (sp->root_count){
 			continue;
-
+		}
+		if(sp->second_chance == 0){
 		unstable = __kvm_mmu_prepare_zap_page(kvm, sp, &invalid_list,
-						      &nr_zapped);
-		total_zapped += nr_zapped;
+			&nr_zapped);
+			total_zapped += nr_zapped;
+			pr_err("zapping page  totals %lu, need %lu\n", total_zapped, nr_to_zap);
+		}
+		sp->second_chance = 0;
 		if (total_zapped >= nr_to_zap)
 			break;
 
 		if (unstable)
 			goto restart;
+	}
+	if(total_zapped < nr_to_zap){
+		goto restart;
 	}
 
 	kvm_mmu_commit_zap_page(kvm, &invalid_list); // commit the zap after prer and iter
@@ -2733,10 +2741,11 @@ static inline unsigned long kvm_mmu_available_pages(struct kvm *kvm)
 static int make_mmu_pages_available(struct kvm_vcpu *vcpu)
 {
 	unsigned long avail = kvm_mmu_available_pages(vcpu->kvm);
-
+	logsp4(vcpu);
 	if (likely(avail >= KVM_MIN_FREE_MMU_PAGES))
 		return 0;
-
+	pr_err("needs more pages\n");
+	
 	kvm_mmu_zap_oldest_mmu_pages(vcpu->kvm, KVM_REFILL_PAGES - avail);
 
 	/*
@@ -2756,6 +2765,8 @@ static int make_mmu_pages_available(struct kvm_vcpu *vcpu)
 /*
  * Changing the number of mmu pages allocated to the vm
  * Note: if goal_nr_mmu_pages is too small, you will get dead lock
+ * 
+ * shrink page here
  */
 void kvm_mmu_change_mmu_pages(struct kvm *kvm, unsigned long goal_nr_mmu_pages)
 {
@@ -6405,7 +6416,7 @@ static int __kvm_mmu_create(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu)
 	 * by 32-bit kernels (when KVM itself uses 32-bit NPT).
 	 */
 	if (!tdp_enabled){
-		pr_err("decrypt mem\n");
+		pr_warn("decrypt mem\n");
 		set_memory_decrypted((unsigned long)mmu->pae_root, 1);
 	}		
 	else
@@ -6453,12 +6464,12 @@ int kvm_mmu_create(struct kvm_vcpu *vcpu)
 // Seems like active_mmu_pages is FIFO, not LRU. Update it as such?
 
 #define BATCH_ZAP_PAGES	10
-static void kvm_zap_obsolete_pages(struct kvm *kvm) // this is diff from zap oldest how?
+static void kvm_zap_obsolete_pages(struct kvm *kvm) // for now we dont care
 {
 	struct kvm_mmu_page *sp, *node;
 	int nr_zapped, batch = 0;
 	bool unstable;
-	pr_err("zapping pages\n");
+	pr_warn("zapping pages\n");
 	lockdep_assert_held(&kvm->slots_lock);
 
 restart:
