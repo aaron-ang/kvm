@@ -433,7 +433,6 @@ struct kvm_mmu_root_info {
 	((struct kvm_mmu_root_info) { .pgd = INVALID_PAGE, .hpa = INVALID_PAGE })
 
 #define KVM_MMU_NUM_PREV_ROOTS 3
-
 #define KVM_MMU_ROOT_CURRENT		BIT(0)
 #define KVM_MMU_ROOT_PREVIOUS(i)	BIT(1+i)
 #define KVM_MMU_ROOTS_ALL		(BIT(1 + KVM_MMU_NUM_PREV_ROOTS) - 1)
@@ -1317,6 +1316,13 @@ enum kvm_apicv_inhibit {
 	__APICV_INHIBIT_REASON(SEV),			\
 	__APICV_INHIBIT_REASON(LOGICAL_ID_ALIASED)
 
+
+
+
+struct active_page_list {
+	struct list_head mmu_act_page;
+	struct kvm_mmu_page *curpg;
+};
 struct kvm_arch {
 	unsigned long n_used_mmu_pages;
 	unsigned long n_requested_mmu_pages;

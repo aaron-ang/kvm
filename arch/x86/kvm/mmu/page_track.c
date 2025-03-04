@@ -171,7 +171,7 @@ static int kvm_enable_external_write_tracking(struct kvm *kvm)
 	struct kvm_memslots *slots;
 	struct kvm_memory_slot *slot;
 	int r = 0, i, bkt;
-
+	pr_err("track write");
 	mutex_lock(&kvm->slots_arch_lock);
 
 	/*
