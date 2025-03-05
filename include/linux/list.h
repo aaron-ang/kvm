@@ -898,6 +898,12 @@ static inline size_t list_count_nodes(struct list_head *head)
 	     !list_entry_is_head(pos, head, member);				\
 	     pos = n, n = list_next_entry(n, member))
 
+// infinite loop
+#define list_for_each_entry_safe_reverse_from(pos, n, head, member)	\
+	for (n = list_prev_entry(pos, member);							\
+	     true;														\
+	     pos = n, n = list_prev_entry(n, member))
+
 /**
  * list_for_each_entry_safe_reverse - iterate backwards over list safe against removal
  * @pos:	the type * to use as a loop cursor.
