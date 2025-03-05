@@ -291,6 +291,8 @@ static void kvm_flush_remote_tlbs_sptep(struct kvm *kvm, u64 *sptep)
 static void mark_mmio_spte(struct kvm_vcpu *vcpu, u64 *sptep, u64 gfn,
 			   unsigned int access)
 {
+	mark_kvm_page_accessed(sptep_to_sp(sptep));
+
 	u64 spte = make_mmio_spte(vcpu, gfn, access);
 
 	trace_mark_mmio_spte(sptep, gfn, spte);
@@ -492,6 +494,8 @@ static void mmu_spte_set(u64 *sptep, u64 new_spte)
 static bool mmu_spte_update(u64 *sptep, u64 new_spte)
 {
 	u64 old_spte = *sptep;
+
+	mark_kvm_page_accessed(sptep_to_sp(sptep));
 
 	WARN_ON_ONCE(!is_shadow_present_pte(new_spte));
 	check_spte_writable_invariants(new_spte);
@@ -1893,6 +1897,8 @@ static int __kvm_sync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp)
 static int kvm_sync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 			 struct list_head *invalid_list)
 {
+	mark_kvm_page_accessed(sp);
+
 	int ret = __kvm_sync_page(vcpu, sp);
 
 	if (ret < 0)
@@ -2190,16 +2196,11 @@ static struct kvm_mmu_page *kvm_mmu_alloc_shadow_page(struct kvm *kvm,
 
 	set_page_private(virt_to_page(sp->spt), (unsigned long)sp); // set to private the virt to page
 
-	INIT_LIST_HEAD(&sp->possible_nx_huge_page_link); // init the nx huge page tabl (see other)
-	sp->second_chance = 1;
-	/*
-	 * active_mmu_pages must be a FIFO list, as kvm_zap_obsolete_pages() cse291: this is what we need to optimize likely, make it so that valid pages on head is not a req.
-	 * depends on valid pages being added to the head of the list.  See
-	 * comments in kvm_zap_obsolete_pages().
-	 */
-	sp->mmu_valid_gen = kvm->arch.mmu_valid_gen; 
-	list_add(&sp->link, &kvm->arch.active_mmu_pages); // add active mmu pages
-	kvm_account_mmu_page(kvm, sp); // ??
+	INIT_LIST_HEAD(&sp->possible_nx_huge_page_link);
+
+	sp->mmu_valid_gen = kvm->arch.mmu_valid_gen;
+	list_add(&sp->link, &kvm->arch.active_mmu_pages);
+	kvm_account_mmu_page(kvm, sp);
 
 	sp->gfn = gfn;
 	sp->role = role;
@@ -2365,6 +2366,7 @@ static void __shadow_walk_next(struct kvm_shadow_walk_iterator *iterator,
 
 static void shadow_walk_next(struct kvm_shadow_walk_iterator *iterator)
 {
+	mark_kvm_page_accessed(sptep_to_sp(iterator->sptep));
 	__shadow_walk_next(iterator, *iterator->sptep);
 }
 
@@ -2617,7 +2619,7 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 						  unsigned long nr_to_zap)
 {
 	unsigned long total_zapped = 0;
-	struct kvm_mmu_page *sp, *tmp;
+	struct kvm_mmu_page *tmp;
 	LIST_HEAD(invalid_list);
 	bool unstable;
 	pr_warn("zapping pages\n");
@@ -2626,22 +2628,24 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 	if (list_empty(&kvm->arch.active_mmu_pages))
 		return 0;
 
+	/* Initialize clock hand to the oldest page if needed */
+	if (!kvm->arch.clock_hand || list_empty(&kvm->arch.clock_hand->link))
+		kvm->arch.clock_hand =
+			list_last_entry(kvm->arch.active_mmu_pages.next,
+					struct kvm_mmu_page, link);
+
 restart:
-	list_for_each_entry_safe_reverse(sp, tmp, &kvm->arch.active_mmu_pages, link) { // iter the list backwards. (since its newest head, oldest first lol)
+	list_for_each_entry_safe_reverse(sp, tmp, &kvm->arch.active_mmu_pages, link) {
 		/*
 		 * Don't zap active root pages, the page itself can't be freed
 		 * and zapping it will just force vCPUs to realloc and reload.
 		 */
-		if (sp->root_count){
+		if (sp->root_count)
 			continue;
-		}
-		if(sp->second_chance == 0){
+
 		unstable = __kvm_mmu_prepare_zap_page(kvm, sp, &invalid_list,
-			&nr_zapped);
-			total_zapped += nr_zapped;
-			pr_err("zapping page  totals %lu, need %lu\n", total_zapped, nr_to_zap);
-		}
-		sp->second_chance = 0;
+						      &nr_zapped);
+		total_zapped += nr_zapped;
 		if (total_zapped >= nr_to_zap)
 			break;
 
@@ -2888,6 +2892,8 @@ static int mmu_set_spte(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
 	bool flush = false;
 	bool wrprot;
 	u64 spte;
+
+	mark_kvm_page_accessed(sp);
 
 	/* Prefetching always gets a writable pfn.  */
 	bool host_writable = !fault || fault->map_writable;
@@ -3485,6 +3491,7 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 			break;
 
 		sp = sptep_to_sp(sptep);
+		mark_kvm_page_accessed(sp);
 		if (!is_last_spte(spte, sp->role.level))
 			break;
 
@@ -6453,8 +6460,8 @@ restart:
 		 * No obsolete valid page exists before a newly created page
 		 * since active_mmu_pages is a FIFO list.  OPTIMIZE THIS
 		 */
-		if (!is_obsolete_sp(kvm, sp))
-			break;
+		// if (!is_obsolete_sp(kvm, sp))
+		// 	break;
 
 		/*
 		 * Invalid pages should never land back on the list of active
