@@ -108,7 +108,7 @@ bool __read_mostly tdp_enabled = false;
 static bool __ro_after_init tdp_mmu_allowed;
 
 #ifdef CONFIG_X86_64
-bool tdp_mmu_enabled = false;
+bool __read_mostly tdp_mmu_enabled = false;
 module_param_named(tdp_mmu, tdp_mmu_enabled, bool, 0444);
 #endif
 
