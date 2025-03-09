@@ -2330,7 +2330,7 @@ static void __shadow_walk_next(struct kvm_shadow_walk_iterator *iterator,
 
 static void shadow_walk_next(struct kvm_shadow_walk_iterator *iterator)
 {
-	mark_kvm_page_accessed(sptep_to_sp(iterator->sptep));
+	// mark_kvm_page_accessed(sptep_to_sp(iterator->sptep)); remove for not mark on every iter
 	__shadow_walk_next(iterator, *iterator->sptep);
 }
 
