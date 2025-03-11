@@ -96,6 +96,12 @@ __MODULE_PARM_TYPE(nx_huge_pages_recovery_period_ms, "uint");
 static bool __read_mostly force_flush_and_sync_on_reuse;
 module_param_named(flush_on_reuse, force_flush_and_sync_on_reuse, bool, 0644);
 
+static bool __read_mostly lru_mmu;
+module_param_named(lru_mmu, lru_mmu, bool, 0644);
+
+ulong __read_mostly shadow_min_alloc_pages = KVM_MIN_ALLOC_MMU_PAGES;
+module_param_named(min_alloc_pages, shadow_min_alloc_pages, ulong, 0644);
+
 /*
  * When setting this variable to true it enables Two-Dimensional-Paging
  * where the hardware walks 2 page tables:
@@ -1897,6 +1903,8 @@ static int kvm_sync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 
 	if (ret < 0)
 		kvm_mmu_prepare_zap_page(vcpu->kvm, sp, invalid_list);
+	else
+		mark_kvm_page_accessed(sp);
 	return ret;
 }
 
@@ -2156,11 +2164,6 @@ static struct kvm_mmu_page *kvm_mmu_alloc_shadow_page(struct kvm *kvm,
 
 	INIT_LIST_HEAD(&sp->possible_nx_huge_page_link);
 
-	/*
-	 * active_mmu_pages must be a FIFO list, as kvm_zap_obsolete_pages()
-	 * depends on valid pages being added to the head of the list.  See
-	 * comments in kvm_zap_obsolete_pages().
-	 */
 	sp->mmu_valid_gen = kvm->arch.mmu_valid_gen;
 	list_add(&sp->link, &kvm->arch.active_mmu_pages);
 	kvm_account_mmu_page(kvm, sp);
@@ -2192,6 +2195,7 @@ static struct kvm_mmu_page *__kvm_mmu_get_shadow_page(struct kvm *kvm,
 		created = true;
 		sp = kvm_mmu_alloc_shadow_page(kvm, caches, gfn, sp_list, role);
 	}
+	mark_kvm_page_accessed(sp);
 
 	trace_kvm_mmu_get_page(sp, created);
 	return sp;
@@ -2351,6 +2355,8 @@ static void __link_shadow_page(struct kvm *kvm,
 	spte = make_nonleaf_spte(sp->spt, sp_ad_disabled(sp));
 
 	mmu_spte_set(sptep, spte);
+
+	mark_kvm_page_accessed(sp);
 
 	mmu_page_add_parent_pte(cache, sp, sptep);
 
@@ -2583,23 +2589,63 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 	if (list_empty(&kvm->arch.active_mmu_pages))
 		return 0;
 
+	if (lru_mmu) {
+		/* Initialize clock hand to the oldest page if needed */
+		if (!kvm->arch.clock_hand ||
+			list_entry_invalid(&kvm->arch.clock_hand->link)) {
+			kvm->arch.clock_hand =
+				list_last_entry(&kvm->arch.active_mmu_pages,
+						struct kvm_mmu_page, link);
+			sp = kvm->arch.clock_hand;
+		}
+	}
+
 restart:
-	list_for_each_entry_safe_reverse(sp, tmp, &kvm->arch.active_mmu_pages, link) {
-		/*
-		 * Don't zap active root pages, the page itself can't be freed
-		 * and zapping it will just force vCPUs to realloc and reload.
-		 */
-		if (sp->root_count)
-			continue;
+	if (lru_mmu) {
+		list_for_each_entry_safe_reverse_from(sp, tmp, link)
+		{
+			/*
+				* Don't zap active root pages, the page itself can't be freed
+				* and zapping it will just force vCPUs to realloc and reload.
+				*/
+			if (sp->root_count)
+				continue;
 
-		unstable = __kvm_mmu_prepare_zap_page(kvm, sp, &invalid_list,
-						      &nr_zapped);
-		total_zapped += nr_zapped;
-		if (total_zapped >= nr_to_zap)
-			break;
+			if (sp->lru_ref) {
+				sp->lru_ref = false;
+				continue;
+			}
 
-		if (unstable)
-			goto restart;
+			unstable = __kvm_mmu_prepare_zap_page(
+				kvm, sp, &invalid_list, &nr_zapped);
+			total_zapped += nr_zapped;
+			if (total_zapped >= nr_to_zap) {
+				kvm->arch.clock_hand = tmp;
+				break;
+			}
+
+			if (unstable)
+				goto restart;
+		}
+	} else {
+		list_for_each_entry_safe_reverse(
+			sp, tmp, &kvm->arch.active_mmu_pages, link) {
+			/*
+				* Don't zap active root pages, the page itself can't be freed
+				* and zapping it will just force vCPUs to realloc and reload.
+				*/
+			if (sp->root_count)
+				continue;
+
+			unstable = __kvm_mmu_prepare_zap_page(
+				kvm, sp, &invalid_list, &nr_zapped);
+			total_zapped += nr_zapped;
+			if (total_zapped >= nr_to_zap)
+				break;
+
+			if (unstable)
+				goto restart;
+		}
 	}
 
 	kvm_mmu_commit_zap_page(kvm, &invalid_list);
@@ -2833,6 +2879,8 @@ static int mmu_set_spte(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
 	bool flush = false;
 	bool wrprot;
 	u64 spte;
+
+	mark_kvm_page_accessed(sp);
 
 	/* Prefetching always gets a writable pfn.  */
 	bool host_writable = !fault || fault->map_writable;
@@ -3501,6 +3549,7 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		 */
 		if (fast_pf_fix_direct_spte(vcpu, fault, sptep, spte, new_spte)) {
 			ret = RET_PF_FIXED;
+			mark_kvm_page_accessed(sp);
 			break;
 		}
 
@@ -6392,7 +6441,7 @@ restart:
 		 * No obsolete valid page exists before a newly created page
 		 * since active_mmu_pages is a FIFO list.
 		 */
-		if (!is_obsolete_sp(kvm, sp))
+		if (!lru_mmu && !is_obsolete_sp(kvm, sp))
 			break;
 
 		/*
@@ -6517,6 +6566,8 @@ void kvm_mmu_init_vm(struct kvm *kvm)
 
 	kvm->arch.split_desc_cache.kmem_cache = pte_list_desc_cache;
 	kvm->arch.split_desc_cache.gfp_zero = __GFP_ZERO;
+
+	kvm->arch.clock_hand = NULL;
 }
 
 static void mmu_free_vm_memory_caches(struct kvm *kvm)
