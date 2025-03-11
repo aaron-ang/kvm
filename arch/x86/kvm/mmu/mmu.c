@@ -291,7 +291,7 @@ static void kvm_flush_remote_tlbs_sptep(struct kvm *kvm, u64 *sptep)
 static void mark_mmio_spte(struct kvm_vcpu *vcpu, u64 *sptep, u64 gfn,
 			   unsigned int access)
 {
-	mark_kvm_page_accessed(sptep_to_sp(sptep));
+	// mark_kvm_page_accessed(sptep_to_sp(sptep));
 
 	u64 spte = make_mmio_spte(vcpu, gfn, access);
 
@@ -495,7 +495,7 @@ static bool mmu_spte_update(u64 *sptep, u64 new_spte)
 {
 	u64 old_spte = *sptep;
 
-	mark_kvm_page_accessed(sptep_to_sp(sptep));
+	// mark_kvm_page_accessed(sptep_to_sp(sptep));
 
 	WARN_ON_ONCE(!is_shadow_present_pte(new_spte));
 	check_spte_writable_invariants(new_spte);
@@ -1897,7 +1897,7 @@ static int __kvm_sync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp)
 static int kvm_sync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 			 struct list_head *invalid_list)
 {
-	mark_kvm_page_accessed(sp);
+	// mark_kvm_page_accessed(sp);
 
 	int ret = __kvm_sync_page(vcpu, sp);
 
@@ -2849,7 +2849,7 @@ static int mmu_set_spte(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
 	bool wrprot;
 	u64 spte;
 
-	mark_kvm_page_accessed(sp);
+	// mark_kvm_page_accessed(sp);
 
 	/* Prefetching always gets a writable pfn.  */
 	bool host_writable = !fault || fault->map_writable;
@@ -6370,7 +6370,7 @@ int kvm_mmu_create(struct kvm_vcpu *vcpu)
 
 	vcpu->arch.mmu_page_header_cache.kmem_cache = mmu_page_header_cache;
 	vcpu->arch.mmu_page_header_cache.gfp_zero = __GFP_ZERO;
-
+	vcpu->kvm->arch.n_max_mmu_pages = 30;
 	vcpu->arch.mmu_shadow_page_cache.init_value =
 		SHADOW_NONPRESENT_VALUE;
 	if (!vcpu->arch.mmu_shadow_page_cache.init_value)
