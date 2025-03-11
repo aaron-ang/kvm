@@ -231,6 +231,11 @@ static inline void list_del(struct list_head *entry)
 	entry->prev = LIST_POISON2;
 }
 
+static inline bool list_entry_invalid(struct list_head *entry)
+{
+	return entry->next == LIST_POISON1 && entry->prev == LIST_POISON2;
+}
+
 /**
  * list_replace - replace old entry by new one
  * @old : the element to be replaced
@@ -889,6 +894,12 @@ static inline size_t list_count_nodes(struct list_head *head)
 	for (n = list_next_entry(pos, member);					\
 	     !list_entry_is_head(pos, head, member);				\
 	     pos = n, n = list_next_entry(n, member))
+
+// infinite loop
+#define list_for_each_entry_safe_reverse_from(pos, n, head, member)	\
+	for (n = list_prev_entry(pos, member);							\
+	     true;														\
+	     pos = n, n = list_prev_entry(n, member))
 
 /**
  * list_for_each_entry_safe_reverse - iterate backwards over list safe against removal
