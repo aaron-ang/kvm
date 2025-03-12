@@ -130,6 +130,10 @@ run_vm() {
     : <<'COMMANDS'
 cd /mnt
 
+echo 0 | sudo tee /sys/module/kvm/parameters/tdp_mmu
+echo 0 | sudo tee /sys/module/kvm_intel/parameters/ept
+echo 16 | sudo tee /sys/module/kvm/min_alloc_pages
+
 sudo kvm/tools/testing/selftests/kvm/demand_paging_test -v $(nproc) -b $(( ( 4 << 30 ) / $(nproc) )) &
 test_pid=$!
 sleep 10

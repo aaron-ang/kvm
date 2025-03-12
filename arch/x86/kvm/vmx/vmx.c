@@ -95,7 +95,7 @@ bool __read_mostly flexpriority_enabled = 1;
 module_param_named(flexpriority, flexpriority_enabled, bool, 0444);
 
 bool __read_mostly enable_ept = 1;
-module_param_named(ept, enable_ept, bool, 0444);
+module_param_named(ept, enable_ept, bool, 0644);
 
 bool __read_mostly enable_unrestricted_guest = 1;
 module_param_named(unrestricted_guest,
