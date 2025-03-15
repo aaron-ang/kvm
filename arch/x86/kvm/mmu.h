@@ -247,6 +247,8 @@ static inline bool kvm_shadow_root_allocated(struct kvm *kvm)
 	return smp_load_acquire(&kvm->arch.shadow_root_allocated);
 }
 
+extern ulong __read_mostly shadow_min_alloc_pages;
+
 #ifdef CONFIG_X86_64
 extern bool tdp_mmu_enabled;
 #else

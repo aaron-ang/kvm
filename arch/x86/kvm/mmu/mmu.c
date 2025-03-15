@@ -96,6 +96,10 @@ __MODULE_PARM_TYPE(nx_huge_pages_recovery_period_ms, "uint");
 static bool __read_mostly force_flush_and_sync_on_reuse;
 module_param_named(flush_on_reuse, force_flush_and_sync_on_reuse, bool, 0644);
 
+
+ulong __read_mostly shadow_min_alloc_pages = KVM_MIN_ALLOC_MMU_PAGES;
+module_param_named(min_alloc_pages, shadow_min_alloc_pages, ulong, 0644);
+
 /*
  * When setting this variable to true it enables Two-Dimensional-Paging
  * where the hardware walks 2 page tables:
