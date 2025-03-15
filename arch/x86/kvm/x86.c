@@ -6307,7 +6307,7 @@ static int kvm_vm_ioctl_set_identity_map_addr(struct kvm *kvm,
 static int kvm_vm_ioctl_set_nr_mmu_pages(struct kvm *kvm,
 					 unsigned long kvm_nr_mmu_pages)
 {
-	if (kvm_nr_mmu_pages < KVM_MIN_ALLOC_MMU_PAGES)
+	if (kvm_nr_mmu_pages < shadow_min_alloc_pages)
 		return -EINVAL;
 
 	mutex_lock(&kvm->slots_lock);
@@ -13196,7 +13196,7 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 		unsigned long nr_mmu_pages;
 
 		nr_mmu_pages = kvm->nr_memslot_pages / KVM_MEMSLOT_PAGES_TO_MMU_PAGES_RATIO;
-		nr_mmu_pages = max(nr_mmu_pages, KVM_MIN_ALLOC_MMU_PAGES);
+		nr_mmu_pages = max(nr_mmu_pages, shadow_min_alloc_pages);
 		kvm_mmu_change_mmu_pages(kvm, nr_mmu_pages);
 	}
 
