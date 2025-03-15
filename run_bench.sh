@@ -123,17 +123,36 @@ start_virtiofsd() {
 
 run_vm() {
     # Notes:
+    # - user: ubuntu
+    # - password: password
     # - Ctrl-A x to exit QEMU session
     # - Ctrl-A h for help
     : <<'COMMANDS'
 cd /mnt
-sudo kvm/tools/testing/selftests/kvm/demand_paging_test -v $(nproc) -b $(( ( 4 << 30 ) / $(nproc) )) &
-sleep 5
-sudo perf kvm --host --guest record --call-graph dwarf --all-cpus -g -o kvm/perf.data -- sleep 1
 
-sudo perf script -i kvm/perf.data | sudo tee kvm/out.perf > /dev/null
-sudo FlameGraph/stackcollapse-perf.pl kvm/out.perf | sudo tee kvm/out.folded > /dev/null
-sudo FlameGraph/flamegraph.pl --color=java kvm/out.folded | sudo tee kvm/out.svg > /dev/null
+sudo kvm/tools/testing/selftests/kvm/demand_paging_test -v $(nproc) -b $(( ( 4 << 30 ) / $(nproc) )) &
+test_pid=$!
+sleep 10
+echo "Running perf-kvm on demand paging test..."
+sudo perf kvm --host --guest record --call-graph dwarf --all-cpus -g -o kvm/dd_paging.data -- sleep 5
+
+wait $test_pid
+sudo perf script -i kvm/dd_paging.data | sudo tee kvm/dd_paging.perf > /dev/null
+sudo FlameGraph/stackcollapse-perf.pl kvm/dd_paging.perf | \
+    sudo FlameGraph/flamegraph.pl --colors java --title "Demand Paging: $(uname -r)" | \
+    sudo tee kvm/dd_paging.svg > /dev/null
+
+sudo kvm/tools/testing/selftests/kvm/mmu_stress_test -m 4 &
+test_pid=$!
+sleep 30
+echo "Running perf-kvm on mmu stress test..."
+sudo perf kvm --host --guest record --call-graph dwarf --all-cpus -g -o kvm/mmu_stress.data -- sleep 10
+
+wait $test_pid
+sudo perf script -i kvm/mmu_stress.data | sudo tee kvm/mmu_stress.perf > /dev/null
+sudo FlameGraph/stackcollapse-perf.pl kvm/mmu_stress.perf | \
+    sudo FlameGraph/flamegraph.pl --colors java --title "MMU Stress: $(uname -r)" | \
+    sudo tee kvm/mmu_stress.svg > /dev/null
 COMMANDS
     qemu-system-x86_64 \
         -kernel "$KERNEL" \
