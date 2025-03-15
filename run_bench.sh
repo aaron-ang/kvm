@@ -58,7 +58,7 @@ install_dependencies() {
         libcap-dev libnuma-dev libaio-dev libtraceevent-dev \
         libslang2-dev libperl-dev libiberty-dev clang llvm-dev \
         libcapstone-dev libtracefs-dev binutils-dev \
-        python3 python3-dev
+        linux-headers-generic python3 python3-dev
 }
 
 check_files() {
@@ -108,7 +108,7 @@ EOF
 
 build_tests() {
     cd $SCRIPT_DIR
-    make -C tools/testing/selftests/kvm -j$(nproc)
+    make kselftest-install -j$(nproc)
     make -C tools/perf -j$(nproc)
     cd $SHARED_DIR
     if [ ! -d "FlameGraph" ]; then
@@ -132,15 +132,14 @@ cd /mnt
 
 echo 0 | sudo tee /sys/module/kvm/parameters/tdp_mmu
 echo 0 | sudo tee /sys/module/kvm_intel/parameters/ept
-echo 16 | sudo tee /sys/module/kvm/parameters/min_alloc_pages
+echo 32 | sudo tee /sys/module/kvm/parameters/min_alloc_pages
 
 sudo kvm/tools/testing/selftests/kvm/demand_paging_test -v $(nproc) -b $(( ( 4 << 30 ) / $(nproc) )) &
 test_pid=$!
 sleep 10
 echo "Running perf-kvm on demand paging test..."
 sudo perf kvm --host --guest record --call-graph dwarf --all-cpus -g -o kvm/dd_paging.data -- sleep 5
-
-wait $test_pid
+sudo kill $test_pid
 sudo perf script -i kvm/dd_paging.data | sudo tee kvm/dd_paging.perf > /dev/null
 sudo FlameGraph/stackcollapse-perf.pl kvm/dd_paging.perf | \
     sudo FlameGraph/flamegraph.pl --colors java --title "Demand Paging: $(uname -r)" | \
@@ -151,8 +150,7 @@ test_pid=$!
 sleep 30
 echo "Running perf-kvm on mmu stress test..."
 sudo perf kvm --host --guest record --call-graph dwarf --all-cpus -g -o kvm/mmu_stress.data -- sleep 10
-
-wait $test_pid
+sudo kill $test_pid
 sudo perf script -i kvm/mmu_stress.data | sudo tee kvm/mmu_stress.perf > /dev/null
 sudo FlameGraph/stackcollapse-perf.pl kvm/mmu_stress.perf | \
     sudo FlameGraph/flamegraph.pl --colors java --title "MMU Stress: $(uname -r)" | \

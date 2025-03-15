@@ -28,6 +28,7 @@ setup_config() {
 
     # Use defaults for new options
     make defconfig
+    make kselftest-merge
 
     # Enable KVM-related options
     scripts/config --enable KVM
@@ -53,7 +54,6 @@ setup_config() {
 }
 
 build_kernel() {
-    make kselftest-merge -j$(nproc)
     make bzImage -j$(nproc)
 }
 
