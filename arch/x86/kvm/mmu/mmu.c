@@ -115,7 +115,7 @@ static bool __ro_after_init tdp_mmu_allowed;
 
 #ifdef CONFIG_X86_64
 bool __read_mostly tdp_mmu_enabled = false;
-module_param_named(tdp_mmu, tdp_mmu_enabled, bool, 0444);
+module_param_named(tdp_mmu, tdp_mmu_enabled, bool, 0644);
 #endif
 
 static int max_huge_page_level __read_mostly;
@@ -2362,7 +2362,7 @@ static void __link_shadow_page(struct kvm *kvm,
 	spte = make_nonleaf_spte(sp->spt, sp_ad_disabled(sp));
 
 	mmu_spte_set(sptep, spte);
-
+	mark_kvm_page_accessed(sp);
 	mmu_page_add_parent_pte(cache, sp, sptep);
 
 	/*
@@ -2590,7 +2590,7 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 	LIST_HEAD(invalid_list);
 	bool unstable;
 	int nr_zapped;
-
+	pr_err("needthis")
 	if (list_empty(&kvm->arch.active_mmu_pages))
 		return 0;
 
@@ -3528,6 +3528,7 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		 */
 		if (fast_pf_fix_direct_spte(vcpu, fault, sptep, spte, new_spte)) {
 			ret = RET_PF_FIXED;
+			mark_kvm_page_accessed(sp);
 			break;
 		}
 
@@ -5692,9 +5693,10 @@ void kvm_init_mmu(struct kvm_vcpu *vcpu)
 
 	if (mmu_is_nested(vcpu))
 		init_kvm_nested_mmu(vcpu, cpu_role);
-	else if (tdp_enabled)
+	else if (tdp_enabled){
+		pr_err("nonono");
 		init_kvm_tdp_mmu(vcpu, cpu_role);
-	else
+	} else
 		init_kvm_softmmu(vcpu, cpu_role);
 }
 EXPORT_SYMBOL_GPL(kvm_init_mmu);
@@ -6419,8 +6421,8 @@ restart:
 		 * No obsolete valid page exists before a newly created page
 		 * since active_mmu_pages is a FIFO list.
 		 */
-		// if (!is_obsolete_sp(kvm, sp))
-		// 	break;
+		if (!lru_mmu && !is_obsolete_sp(kvm, sp))
+			break;
 
 		/*
 		 * Invalid pages should never land back on the list of active
@@ -6544,6 +6546,7 @@ void kvm_mmu_init_vm(struct kvm *kvm)
 
 	kvm->arch.split_desc_cache.kmem_cache = pte_list_desc_cache;
 	kvm->arch.split_desc_cache.gfp_zero = __GFP_ZERO;
+	kvm->arch.clock_hand = NULL;
 }
 
 static void mmu_free_vm_memory_caches(struct kvm *kvm)
