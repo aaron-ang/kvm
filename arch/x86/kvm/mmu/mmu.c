@@ -96,6 +96,12 @@ __MODULE_PARM_TYPE(nx_huge_pages_recovery_period_ms, "uint");
 static bool __read_mostly force_flush_and_sync_on_reuse;
 module_param_named(flush_on_reuse, force_flush_and_sync_on_reuse, bool, 0644);
 
+
+static bool __read_mostly lru_mmu;
+module_param_named(lru_mmu, lru_mmu, bool, 0644);
+
+ulong __read_mostly shadow_min_alloc_pages = KVM_MIN_ALLOC_MMU_PAGES;
+module_param_named(min_alloc_pages, shadow_min_alloc_pages, ulong, 0644);
 /*
  * When setting this variable to true it enables Two-Dimensional-Paging
  * where the hardware walks 2 page tables:
@@ -1903,6 +1909,8 @@ static int kvm_sync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 
 	if (ret < 0)
 		kvm_mmu_prepare_zap_page(vcpu->kvm, sp, invalid_list);
+	else
+		mark_kvm_page_accessed(sp);
 	return ret;
 }
 
@@ -2193,6 +2201,7 @@ static struct kvm_mmu_page *__kvm_mmu_get_shadow_page(struct kvm *kvm,
 		created = true;
 		sp = kvm_mmu_alloc_shadow_page(kvm, caches, gfn, sp_list, role);
 	}
+	mark_kvm_page_accessed(sp);
 
 	trace_kvm_mmu_get_page(sp, created);
 	return sp;
