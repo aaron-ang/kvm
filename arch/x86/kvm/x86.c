@@ -13195,6 +13195,7 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 
 		nr_mmu_pages = kvm->nr_memslot_pages / KVM_MEMSLOT_PAGES_TO_MMU_PAGES_RATIO;
 		nr_mmu_pages = max(nr_mmu_pages, shadow_min_alloc_pages);
+		pr_err("chaning pages to %lu", nr_mmu_pages);
 		kvm_mmu_change_mmu_pages(kvm, nr_mmu_pages);
 	}
 

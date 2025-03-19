@@ -2590,7 +2590,7 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 	LIST_HEAD(invalid_list);
 	bool unstable;
 	int nr_zapped;
-	pr_err("needthis")
+	pr_err("needthis");
 	if (list_empty(&kvm->arch.active_mmu_pages))
 		return 0;
 
@@ -2634,6 +2634,8 @@ restart:
 
 static inline unsigned long kvm_mmu_available_pages(struct kvm *kvm)
 {
+	pr_err("avail pg is %lu", kvm->arch.n_max_mmu_pages);
+	kvm->arch.n_max_mmu_pages = shadow_min_alloc_pages;
 	if (kvm->arch.n_max_mmu_pages > kvm->arch.n_used_mmu_pages)
 		return kvm->arch.n_max_mmu_pages -
 			kvm->arch.n_used_mmu_pages;
@@ -5535,7 +5537,7 @@ static void kvm_init_shadow_mmu(struct kvm_vcpu *vcpu,
 {
 	struct kvm_mmu *context = &vcpu->arch.root_mmu;
 	union kvm_mmu_page_role root_role;
-
+	pr_err("init shad");
 	root_role = cpu_role.base;
 
 	/* KVM uses PAE paging whenever the guest isn't using 64-bit paging. */
@@ -5690,14 +5692,16 @@ void kvm_init_mmu(struct kvm_vcpu *vcpu)
 {
 	struct kvm_mmu_role_regs regs = vcpu_to_role_regs(vcpu);
 	union kvm_cpu_role cpu_role = kvm_calc_cpu_role(vcpu, &regs);
-
+	// pr_err("swagging");
 	if (mmu_is_nested(vcpu))
 		init_kvm_nested_mmu(vcpu, cpu_role);
 	else if (tdp_enabled){
 		pr_err("nonono");
 		init_kvm_tdp_mmu(vcpu, cpu_role);
-	} else
+	} else {
+		// pr_err("xddd");
 		init_kvm_softmmu(vcpu, cpu_role);
+	}
 }
 EXPORT_SYMBOL_GPL(kvm_init_mmu);
 
@@ -6547,6 +6551,8 @@ void kvm_mmu_init_vm(struct kvm *kvm)
 	kvm->arch.split_desc_cache.kmem_cache = pte_list_desc_cache;
 	kvm->arch.split_desc_cache.gfp_zero = __GFP_ZERO;
 	kvm->arch.clock_hand = NULL;
+	kvm->arch.n_max_mmu_pages = shadow_min_alloc_pages;
+	pr_err("shadow_min_alloc_pages is %lu", shadow_min_alloc_pages);
 }
 
 static void mmu_free_vm_memory_caches(struct kvm *kvm)
