@@ -1903,7 +1903,7 @@ static int __kvm_sync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp)
 static int kvm_sync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 			 struct list_head *invalid_list)
 {
-	mark_kvm_page_accessed(sp);
+	// mark_kvm_page_accessed(sp);
 
 	int ret = __kvm_sync_page(vcpu, sp);
 
@@ -2201,7 +2201,7 @@ static struct kvm_mmu_page *__kvm_mmu_get_shadow_page(struct kvm *kvm,
 		created = true;
 		sp = kvm_mmu_alloc_shadow_page(kvm, caches, gfn, sp_list, role);
 	}
-	mark_kvm_page_accessed(sp);
+	// mark_kvm_page_accessed(sp);
 
 	trace_kvm_mmu_get_page(sp, created);
 	return sp;
@@ -2362,7 +2362,7 @@ static void __link_shadow_page(struct kvm *kvm,
 	spte = make_nonleaf_spte(sp->spt, sp_ad_disabled(sp));
 
 	mmu_spte_set(sptep, spte);
-	mark_kvm_page_accessed(sp);
+	// mark_kvm_page_accessed(sp);
 	mmu_page_add_parent_pte(cache, sp, sptep);
 
 	/*
@@ -2634,8 +2634,6 @@ restart:
 
 static inline unsigned long kvm_mmu_available_pages(struct kvm *kvm)
 {
-	pr_err("avail pg is %lu", kvm->arch.n_max_mmu_pages);
-	kvm->arch.n_max_mmu_pages = shadow_min_alloc_pages;
 	if (kvm->arch.n_max_mmu_pages > kvm->arch.n_used_mmu_pages)
 		return kvm->arch.n_max_mmu_pages -
 			kvm->arch.n_used_mmu_pages;
@@ -2860,7 +2858,7 @@ static int mmu_set_spte(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
 	bool wrprot;
 	u64 spte;
 
-	mark_kvm_page_accessed(sp);
+	// mark_kvm_page_accessed(sp);
 
 	/* Prefetching always gets a writable pfn.  */
 	bool host_writable = !fault || fault->map_writable;
@@ -3530,7 +3528,7 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		 */
 		if (fast_pf_fix_direct_spte(vcpu, fault, sptep, spte, new_spte)) {
 			ret = RET_PF_FIXED;
-			mark_kvm_page_accessed(sp);
+			// mark_kvm_page_accessed(sp);
 			break;
 		}
 
@@ -5517,7 +5515,7 @@ static void shadow_mmu_init_context(struct kvm_vcpu *vcpu, struct kvm_mmu *conte
 	if (cpu_role.as_u64 == context->cpu_role.as_u64 &&
 	    root_role.word == context->root_role.word)
 		return;
-
+	vcpu->kvm->arch.n_max_mmu_pages = shadow_min_alloc_pages;
 	context->cpu_role.as_u64 = cpu_role.as_u64;
 	context->root_role.word = root_role.word;
 
