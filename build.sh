@@ -28,20 +28,22 @@ setup_config() {
 
     # Use defaults for new options
     make defconfig
+    # make kselftest-merge
 
     # Enable KVM-related options
     scripts/config --enable KVM
     scripts/config --enable KVM_X86
     scripts/config --enable KVM_INTEL
-    scripts/config --enable EXPERT
-    scripts/config --enable KVM_PROVE_MMU
-    scripts/config --enable UNWINDER_FRAME_POINTER
-    scripts/config --enable VHOST_NET
+    scripts/config --enable EXPERT                 # for KVM_PROVE_MMU
+    scripts/config --enable KVM_PROVE_MMU          # to verify MMU operations
+    scripts/config --enable UNWINDER_FRAME_POINTER # for unwinding kernel stack traces
     scripts/config --enable USERFAULTFD
     scripts/config --enable BPF_SYSCALL
     scripts/config --enable BPF_JIT
     scripts/config --enable CGROUP_BPF
-    scripts/config --enable FUSE_FS
+    scripts/config --enable TRANSPARENT_HUGEPAGE # for kvm/mmu_stress_test
+    scripts/config --enable VHOST_NET            # for virtiofsd
+    scripts/config --enable FUSE_FS              # for virtiofsd
     scripts/config --enable VIRTIO_FS
 
     # Disable signature verification
@@ -53,7 +55,6 @@ setup_config() {
 }
 
 build_kernel() {
-    make kselftest-merge -j$(nproc)
     make bzImage -j$(nproc)
 }
 
