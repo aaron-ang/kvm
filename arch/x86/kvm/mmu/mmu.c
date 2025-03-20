@@ -2201,7 +2201,7 @@ static struct kvm_mmu_page *__kvm_mmu_get_shadow_page(struct kvm *kvm,
 		created = true;
 		sp = kvm_mmu_alloc_shadow_page(kvm, caches, gfn, sp_list, role);
 	}
-	// mark_kvm_page_accessed(sp);
+	mark_kvm_page_accessed(sp);
 
 	trace_kvm_mmu_get_page(sp, created);
 	return sp;
@@ -2589,7 +2589,7 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 	struct kvm_mmu_page *tmp;
 	LIST_HEAD(invalid_list);
 	bool unstable;
-	int nr_zapped;
+	int nr_zapped = 0;
 	pr_err("needthis");
 	if (list_empty(&kvm->arch.active_mmu_pages))
 		return 0;
@@ -2858,7 +2858,7 @@ static int mmu_set_spte(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
 	bool wrprot;
 	u64 spte;
 
-	// mark_kvm_page_accessed(sp);
+	mark_kvm_page_accessed(sp);
 
 	/* Prefetching always gets a writable pfn.  */
 	bool host_writable = !fault || fault->map_writable;
@@ -3528,7 +3528,7 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		 */
 		if (fast_pf_fix_direct_spte(vcpu, fault, sptep, spte, new_spte)) {
 			ret = RET_PF_FIXED;
-			// mark_kvm_page_accessed(sp);
+			mark_kvm_page_accessed(sp);
 			break;
 		}
 
