@@ -98,7 +98,7 @@ struct kvm_mmu_page {
 	 */
 	u64 *shadowed_translation;
 
-	bool lru_ref;
+	int lru_ref;
 
 	/* Currently serving as active root */
 	union {
@@ -226,7 +226,7 @@ static inline void kvm_flush_remote_tlbs_gfn(struct kvm *kvm, gfn_t gfn, int lev
 static inline void mark_kvm_page_accessed(struct kvm_mmu_page *sp)
 {
 	if (sp)
-		sp->lru_ref = true;
+		sp->lru_ref = 0;
 }
 
 unsigned int pte_list_count(struct kvm_rmap_head *rmap_head);

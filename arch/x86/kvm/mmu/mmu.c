@@ -2594,14 +2594,15 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 	if (list_empty(&kvm->arch.active_mmu_pages))
 		return 0;
 
+
 	/* Initialize clock hand to the oldest page if needed */
 	if (!kvm->arch.clock_hand || list_empty(&kvm->arch.clock_hand->link))
 		kvm->arch.clock_hand =
 			list_last_entry(kvm->arch.active_mmu_pages.next,
 					struct kvm_mmu_page, link);
-
+	struct kvm_mmu_page *iterhand = kvm->arch.clock_hand;
 restart:
-	list_for_each_entry_safe_reverse_from(kvm->arch.clock_hand, tmp,
+	list_for_each_entry_safe_reverse_from(iterhand, tmp,
 					   &kvm->arch.active_mmu_pages, link)
 	{
 		/*
@@ -2611,10 +2612,11 @@ restart:
 		if (kvm->arch.clock_hand->root_count)
 			continue;
 
-		if (kvm->arch.clock_hand->lru_ref) {
-			kvm->arch.clock_hand->lru_ref = false;
+		if (kvm->arch.clock_hand->lru_ref == 0) {
+			kvm->arch.clock_hand->lru_ref = 1;
 			continue;
 		}
+		pr_err("itersz");
 
 		unstable = __kvm_mmu_prepare_zap_page(
 			kvm, kvm->arch.clock_hand, &invalid_list, &nr_zapped);
@@ -2625,15 +2627,17 @@ restart:
 		if (unstable)
 			goto restart;
 	}
+	pr_err("dead after commit");
 
 	kvm_mmu_commit_zap_page(kvm, &invalid_list);
-
+	kvm->arch.clock_hand = iterhand;
 	kvm->stat.mmu_recycled += total_zapped;
 	return total_zapped;
 }
 
 static inline unsigned long kvm_mmu_available_pages(struct kvm *kvm)
 {
+	pr_err("have pgs %lu",kvm->arch.n_used_mmu_pages );
 	if (kvm->arch.n_max_mmu_pages > kvm->arch.n_used_mmu_pages)
 		return kvm->arch.n_max_mmu_pages -
 			kvm->arch.n_used_mmu_pages;
@@ -3456,7 +3460,7 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 			break;
 
 		sp = sptep_to_sp(sptep);
-		mark_kvm_page_accessed(sp);
+
 		if (!is_last_spte(spte, sp->role.level))
 			break;
 
@@ -3541,7 +3545,7 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 
 	trace_fast_page_fault(vcpu, fault, sptep, spte, ret);
 	walk_shadow_page_lockless_end(vcpu);
-
+	mark_kvm_page_accessed(sp);
 	if (ret != RET_PF_INVALID)
 		vcpu->stat.pf_fast++;
 
