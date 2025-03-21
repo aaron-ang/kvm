@@ -2591,23 +2591,20 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 
 	if (lru_mmu) {
 		/* Initialize clock hand to the oldest page if needed */
-		if (!kvm->arch.clock_hand ||
-			list_entry_invalid(&kvm->arch.clock_hand->link)) {
+		if (NULL == kvm->arch.clock_hand) {
 			kvm->arch.clock_hand =
 				list_last_entry(&kvm->arch.active_mmu_pages,
 						struct kvm_mmu_page, link);
-			sp = kvm->arch.clock_hand;
 		}
-	}
 
-restart:
-	if (lru_mmu) {
-		list_for_each_entry_safe_reverse_from(sp, tmp, link)
-		{
+		sp = kvm->arch.clock_hand;
+
+		list_for_each_entry_safe_reverse_from(
+			sp, tmp, &kvm->arch.active_mmu_pages, link) {
 			/*
-				* Don't zap active root pages, the page itself can't be freed
-				* and zapping it will just force vCPUs to realloc and reload.
-				*/
+			* Don't zap active root pages, the page itself can't be freed
+			* and zapping it will just force vCPUs to realloc and reload.
+			*/
 			if (sp->root_count)
 				continue;
 
@@ -2625,15 +2622,16 @@ restart:
 			}
 
 			if (unstable)
-				goto restart;
+				continue;
 		}
 	} else {
+restart:
 		list_for_each_entry_safe_reverse(
 			sp, tmp, &kvm->arch.active_mmu_pages, link) {
 			/*
-				* Don't zap active root pages, the page itself can't be freed
-				* and zapping it will just force vCPUs to realloc and reload.
-				*/
+			* Don't zap active root pages, the page itself can't be freed
+			* and zapping it will just force vCPUs to realloc and reload.
+			*/
 			if (sp->root_count)
 				continue;
 
