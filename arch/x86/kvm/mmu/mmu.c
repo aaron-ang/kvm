@@ -2596,7 +2596,7 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 
 
 	/* Initialize clock hand to the oldest page if needed */
-	if (!kvm->arch.clock_hand || list_empty(&kvm->arch.clock_hand->link))
+	// if (!kvm->arch.clock_hand || list_empty(&kvm->arch.clock_hand->link))
 		kvm->arch.clock_hand =
 			list_last_entry(kvm->arch.active_mmu_pages.next,
 					struct kvm_mmu_page, link);
