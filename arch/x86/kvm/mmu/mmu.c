@@ -1903,8 +1903,6 @@ static int kvm_sync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 
 	if (ret < 0)
 		kvm_mmu_prepare_zap_page(vcpu->kvm, sp, invalid_list);
-	// else
-	// 	mark_kvm_page_accessed(sp);
 	return ret;
 }
 
@@ -2195,7 +2193,7 @@ static struct kvm_mmu_page *__kvm_mmu_get_shadow_page(struct kvm *kvm,
 		created = true;
 		sp = kvm_mmu_alloc_shadow_page(kvm, caches, gfn, sp_list, role);
 	}
-	// mark_kvm_page_accessed(sp);
+	mark_kvm_page_accessed(sp);
 
 	trace_kvm_mmu_get_page(sp, created);
 	return sp;
@@ -2355,8 +2353,6 @@ static void __link_shadow_page(struct kvm *kvm,
 	spte = make_nonleaf_spte(sp->spt, sp_ad_disabled(sp));
 
 	mmu_spte_set(sptep, spte);
-
-	// mark_kvm_page_accessed(sp);
 
 	mmu_page_add_parent_pte(cache, sp, sptep);
 
@@ -2877,8 +2873,6 @@ static int mmu_set_spte(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
 	bool flush = false;
 	bool wrprot;
 	u64 spte;
-
-	// mark_kvm_page_accessed(sp);
 
 	/* Prefetching always gets a writable pfn.  */
 	bool host_writable = !fault || fault->map_writable;
@@ -3547,7 +3541,6 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		 */
 		if (fast_pf_fix_direct_spte(vcpu, fault, sptep, spte, new_spte)) {
 			ret = RET_PF_FIXED;
-			// mark_kvm_page_accessed(sp);
 			break;
 		}
 
@@ -3557,6 +3550,9 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		}
 
 	} while (true);
+
+	if (ret == RET_PF_FIXED || ret == RET_PF_SPURIOUS)
+		mark_kvm_page_accessed(sp);
 
 	trace_fast_page_fault(vcpu, fault, sptep, spte, ret);
 	walk_shadow_page_lockless_end(vcpu);
