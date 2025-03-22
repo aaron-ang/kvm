@@ -87,7 +87,19 @@ packages:
     - libbabeltrace-dev
     - libcapstone-dev
     - libpfm4-dev
+    - cloud-image-utils
+    - qemu-system-x86
+    - lsb-release
+    - curl
+    - gpg
 runcmd:
+    - curl -fsSL https://packages.redis.io/gpg | gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+    - chmod 644 /usr/share/keyrings/redis-archive-keyring.gpg
+    - echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb \$(lsb_release -cs) main" | tee /etc/apt/sources.list.d/redis.list
+    - apt update
+    - apt install -y redis
+    - systemctl enable redis-server
+    - systemctl start redis-server
     - mount -t virtiofs hostshare /mnt
     - echo 'hostshare /mnt virtiofs defaults' | tee -a /etc/fstab
     - fallocate -l 2G /swapfile
@@ -135,7 +147,21 @@ echo 0 | sudo tee /sys/module/kvm/parameters/tdp_mmu
 echo 1 | sudo tee /sys/module/kvm/parameters/lru_mmu
 echo 32 | sudo tee /sys/module/kvm/parameters/min_alloc_pages
 
-sudo kvm/tools/testing/selftests/kvm/demand_paging_test -v $(nproc) -b $(( ( 4 << 30 ) / $(nproc) )) &
+
+### Run tests
+
+sudo kvm/tools/testing/selftests/kvm/mmu_stress_test &
+test_pid=$!
+sleep 15
+echo "Running perf-kvm on mmu stress test..."
+sudo perf kvm --host --guest record --call-graph dwarf --all-cpus -g -o kvm/mmu_stress.data -- sleep 10
+kill $test_pid
+sudo perf script -i kvm/mmu_stress.data | sudo tee kvm/mmu_stress.perf > /dev/null
+sudo FlameGraph/stackcollapse-perf.pl kvm/mmu_stress.perf | \
+    sudo FlameGraph/flamegraph.pl --colors java --title "MMU Stress: $(uname -r)" | \
+    sudo tee kvm/mmu_stress.svg > /dev/null
+
+sudo kvm/tools/testing/selftests/kvm/demand_paging_test -v $(nproc) -b $(( ( 9 << 30 ) / $(nproc) )) &
 test_pid=$!
 sleep 5
 echo "Running perf-kvm on demand paging test..."
@@ -146,28 +172,62 @@ sudo FlameGraph/stackcollapse-perf.pl kvm/dd_paging.perf | \
     sudo FlameGraph/flamegraph.pl --colors java --title "Demand Paging: $(uname -r)" | \
     sudo tee kvm/dd_paging.svg > /dev/null
 
-sudo kvm/tools/testing/selftests/kvm/mmu_stress_test -m 4 &
-test_pid=$!
-sleep 15
-echo "Running perf-kvm on mmu stress test..."
-sudo perf kvm --host --guest record --call-graph dwarf --all-cpus -g -o kvm/mmu_stress.data -- sleep 10
-kill $test_pid
-sudo perf script -i kvm/mmu_stress.data | sudo tee kvm/mmu_stress.perf > /dev/null
-sudo FlameGraph/stackcollapse-perf.pl kvm/mmu_stress.perf | \
-    sudo FlameGraph/flamegraph.pl --colors java --title "MMU Stress: $(uname -r)" | \
-    sudo tee kvm/mmu_stress.svg > /dev/null
+
+### Run Redis benchmark
+
+cd ~
+CLOUD_IMG=~/ubuntu_cloud.img
+SEED_IMG=~/seed.img
+if [ ! -f "$CLOUD_IMG" ]; then
+    wget -4 -O "$CLOUD_IMG" https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+    qemu-img resize "$CLOUD_IMG" 8G
+fi
+cp kvm/arch/x86_64/boot/user-data ~/user-data
+echo 'Replacing virtiofs with 9p in user-data...'
+sed -i '/mount -t virtiofs/s/mount -t virtiofs hostshare \/mnt/mount -t 9p -o trans=virtio hostshare \/mnt -oversion=9p2000.L/' ~/user-data
+sed -i '/echo.*hostshare.*fstab/s/virtiofs/9p/' ~/user-data
+cloud-localds "$SEED_IMG" ~/user-data
+
+echo 128 | sudo tee /sys/module/kvm/parameters/min_alloc_pages
+sudo qemu-system-x86_64 \
+    -drive if=virtio,id=root,media=disk,file="$CLOUD_IMG" \
+    -drive if=virtio,file="$SEED_IMG",format=raw \
+    -cpu host -smp 4 \
+    -enable-kvm -m 4G \
+    -virtfs local,path=/mnt,mount_tag=hostshare,security_model=none \
+    -nic user,model=virtio-net-pci \
+    -nographic
+
+# In nested VM:
+cd /mnt
+redis-cli flushall
+redis-benchmark -n 1000000 -d 1024 -r 100000 -t set -P 16 -q -l
+
+# In host VM (ssh -p 2222 ubuntu@localhost):
+cd /mnt
+sudo perf kvm --host --guest record --call-graph dwarf --all-cpus -g -o kvm/redis_bench.data -- sleep 10
+sudo perf script -i kvm/redis_bench.data | sudo tee kvm/redis_bench.perf > /dev/null
+sudo FlameGraph/stackcollapse-perf.pl kvm/redis_bench.perf | \
+    sudo FlameGraph/flamegraph.pl --colors java --title "Redis Benchmark: $(uname -r)" | \
+    sudo tee kvm/redis_bench.svg > /dev/null
+
+# Once perf is complete, Ctrl-C in nested VM.
+
+# Go back to host VM:
+sudo poweroff -f
 COMMANDS
     qemu-system-x86_64 \
         -kernel "$KERNEL" \
         -drive if=virtio,id=root,media=disk,file="$CLOUD_IMG" \
         -drive if=virtio,file="$SEED_IMG",format=raw \
         -cpu host -smp 4 \
-        -enable-kvm -m 4G \
-        -object memory-backend-memfd,id=mem,size=4G,share=on \
+        -enable-kvm -m 8G \
+        -object memory-backend-memfd,id=mem,size=8G,share=on \
         -numa node,memdev=mem \
         -chardev socket,id=char0,path="$SOCKET_PATH" \
         -device vhost-user-fs-pci,queue-size=1024,chardev=char0,tag=hostshare \
-        -nic user,model=virtio-net-pci \
+        -netdev user,id=net0,hostfwd=tcp::2222-:22 \
+        -device virtio-net-pci,netdev=net0 \
         -append "console=ttyS0 root=/dev/vda1" \
         -nographic
 }
