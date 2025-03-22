@@ -9,6 +9,8 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 GIT_BRANCH=$(git branch --show-current)
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+KVM_DIR=$(dirname "$SCRIPT_DIR")
 
 install_dependencies() {
     apt update -q
@@ -59,6 +61,7 @@ build_kernel() {
 }
 
 # Main execution
+cd "$KVM_DIR"
 install_dependencies
 setup_config
 build_kernel

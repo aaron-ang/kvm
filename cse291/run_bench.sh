@@ -10,12 +10,13 @@ fi
 
 # Default paths
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
-IMG_DIR="$SCRIPT_DIR/arch/x86_64/boot"
+KVM_DIR=$(dirname "$SCRIPT_DIR")
+IMG_DIR="$KVM_DIR/arch/x86_64/boot"
 KERNEL="$IMG_DIR/bzImage"
 CLOUD_IMG="$IMG_DIR/ubuntu_cloud.img"
 USER_CONFIG="$IMG_DIR/user-data"
 SEED_IMG="$IMG_DIR/seed.img"
-SHARED_DIR=$(dirname "$SCRIPT_DIR")
+SHARED_DIR=$(dirname "$KVM_DIR")
 SOCKET_PATH="/tmp/virtiofs.sock"
 
 # Display usage information
@@ -119,7 +120,7 @@ EOF
 }
 
 build_tests() {
-    cd $SCRIPT_DIR
+    cd $KVM_DIR
     make kselftest-install -j$(nproc)
     make -C tools/perf -j$(nproc)
     cd $SHARED_DIR
@@ -140,55 +141,58 @@ run_vm() {
     # - Ctrl-A x to exit QEMU session
     # - Ctrl-A h for help
     : <<'COMMANDS'
-cd /mnt
-
 echo 0 | sudo tee /sys/module/kvm/parameters/tdp_mmu
 # echo 0 | sudo tee /sys/module/kvm_intel/parameters/ept
-echo 1 | sudo tee /sys/module/kvm/parameters/lru_mmu
 echo 32 | sudo tee /sys/module/kvm/parameters/min_alloc_pages
+echo 1 | sudo tee /sys/module/kvm/parameters/lru_mmu
+echo 0 | sudo tee /sys/module/kvm/parameters/lru_mmu
 
+cat /sys/module/kvm/parameters/lru_mmu
+cat /sys/module/kvm/parameters/min_alloc_pages
 
 ### Run tests
 
-sudo kvm/tools/testing/selftests/kvm/mmu_stress_test &
+sudo /mnt/kvm/tools/testing/selftests/kvm/mmu_stress_test &
 test_pid=$!
 sleep 15
 echo "Running perf-kvm on mmu stress test..."
-sudo perf kvm --host --guest record --call-graph dwarf --all-cpus -g -o kvm/mmu_stress.data -- sleep 10
+sudo perf kvm --host --guest record --call-graph dwarf --all-cpus -g -o /mnt/kvm/mmu_stress.data -- sleep 10
 kill $test_pid
-sudo perf script -i kvm/mmu_stress.data | sudo tee kvm/mmu_stress.perf > /dev/null
-sudo FlameGraph/stackcollapse-perf.pl kvm/mmu_stress.perf | \
-    sudo FlameGraph/flamegraph.pl --colors java --title "MMU Stress: $(uname -r)" | \
-    sudo tee kvm/mmu_stress.svg > /dev/null
+sudo perf script -i /mnt/kvm/mmu_stress.data | sudo tee /mnt/kvm/mmu_stress.perf > /dev/null
+sudo /mnt/FlameGraph/stackcollapse-perf.pl /mnt/kvm/mmu_stress.perf | \
+    sudo /mnt/FlameGraph/flamegraph.pl --colors java --title "MMU Stress: $(uname -r)" | \
+    sudo tee /mnt/kvm/mmu_stress.svg > /dev/null
 
-sudo kvm/tools/testing/selftests/kvm/demand_paging_test -v $(nproc) -b $(( ( 9 << 30 ) / $(nproc) )) &
+# mv /mnt/kvm/mmu_stress.svg /mnt/kvm/cse291/mmu_stress_{fifo | lru}.svg
+
+sudo /mnt/kvm/tools/testing/selftests/kvm/demand_paging_test -v $(nproc) -b $(( ( 9 << 30 ) / $(nproc) )) &
 test_pid=$!
 sleep 5
 echo "Running perf-kvm on demand paging test..."
-sudo perf kvm --host --guest record --call-graph dwarf --all-cpus -g -o kvm/dd_paging.data -- sleep 5
+sudo perf kvm --host --guest record --call-graph dwarf --all-cpus -g -o /mnt/kvm/dd_paging.data -- sleep 5
 kill $test_pid
-sudo perf script -i kvm/dd_paging.data | sudo tee kvm/dd_paging.perf > /dev/null
-sudo FlameGraph/stackcollapse-perf.pl kvm/dd_paging.perf | \
-    sudo FlameGraph/flamegraph.pl --colors java --title "Demand Paging: $(uname -r)" | \
-    sudo tee kvm/dd_paging.svg > /dev/null
+sudo perf script -i /mnt/kvm/dd_paging.data | sudo tee /mnt/kvm/dd_paging.perf > /dev/null
+sudo /mnt/FlameGraph/stackcollapse-perf.pl /mnt/kvm/dd_paging.perf | \
+    sudo /mnt/FlameGraph/flamegraph.pl --colors java --title "Demand Paging: $(uname -r)" | \
+    sudo tee /mnt/kvm/dd_paging.svg > /dev/null
 
+# mv /mnt/kvm/dd_paging.svg /mnt/kvm/cse291/dd_paging_{fifo | lru}.svg
 
 ### Run Redis benchmark
 
-cd ~
 CLOUD_IMG=~/ubuntu_cloud.img
 SEED_IMG=~/seed.img
 if [ ! -f "$CLOUD_IMG" ]; then
     wget -4 -O "$CLOUD_IMG" https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
     qemu-img resize "$CLOUD_IMG" 8G
 fi
-cp kvm/arch/x86_64/boot/user-data ~/user-data
+cp /mnt/kvm/arch/x86_64/boot/user-data ~/user-data
 echo 'Replacing virtiofs with 9p in user-data...'
 sed -i '/mount -t virtiofs/s/mount -t virtiofs hostshare \/mnt/mount -t 9p -o trans=virtio hostshare \/mnt -oversion=9p2000.L/' ~/user-data
 sed -i '/echo.*hostshare.*fstab/s/virtiofs/9p/' ~/user-data
 cloud-localds "$SEED_IMG" ~/user-data
 
-echo 128 | sudo tee /sys/module/kvm/parameters/min_alloc_pages
+echo 3 | sudo tee /proc/sys/vm/drop_caches
 sudo qemu-system-x86_64 \
     -drive if=virtio,id=root,media=disk,file="$CLOUD_IMG" \
     -drive if=virtio,file="$SEED_IMG",format=raw \
@@ -199,17 +203,16 @@ sudo qemu-system-x86_64 \
     -nographic
 
 # In nested VM:
-cd /mnt
-redis-cli flushall
-redis-benchmark -n 1000000 -d 1024 -r 100000 -t set -P 16 -q -l
+redis-cli flushall && redis-benchmark -n 1000000 -r 100000 -P 16 -q
+
+redis-cli flushall && redis-benchmark -n 2000000 -d 1024 -r 1000000 --threads 4 -t lrange_600 -P 16 -q
 
 # In host VM (ssh -p 2222 ubuntu@localhost):
-cd /mnt
-sudo perf kvm --host --guest record --call-graph dwarf --all-cpus -g -o kvm/redis_bench.data -- sleep 10
-sudo perf script -i kvm/redis_bench.data | sudo tee kvm/redis_bench.perf > /dev/null
-sudo FlameGraph/stackcollapse-perf.pl kvm/redis_bench.perf | \
-    sudo FlameGraph/flamegraph.pl --colors java --title "Redis Benchmark: $(uname -r)" | \
-    sudo tee kvm/redis_bench.svg > /dev/null
+sudo perf kvm --host record --call-graph dwarf --all-cpus -g -o /mnt/kvm/redis_bench.data -- sleep 10
+sudo perf script -i /mnt/kvm/redis_bench.data | sudo tee /mnt/kvm/redis_bench.perf > /dev/null
+sudo /mnt/FlameGraph/stackcollapse-perf.pl /mnt/kvm/redis_bench.perf | \
+    sudo /mnt/FlameGraph/flamegraph.pl --colors java --title "Redis Benchmark: $(uname -r)" | \
+    sudo tee /mnt/kvm/redis_bench.svg > /dev/null
 
 # Once perf is complete, Ctrl-C in nested VM.
 
@@ -230,6 +233,14 @@ COMMANDS
         -device virtio-net-pci,netdev=net0 \
         -append "console=ttyS0 root=/dev/vda1" \
         -nographic
+
+    # wait for user to exit QEMU session
+    read -p "Press Enter to continue..."
+}
+
+cleanup() {
+    cd $KVM_DIR
+    rm -f *.svg *.data *.perf *.old
 }
 
 # Main execution
@@ -239,3 +250,4 @@ create_config
 build_tests
 start_virtiofsd
 run_vm
+cleanup
