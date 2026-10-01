@@ -1574,6 +1574,12 @@ struct kvm_vm_stat {
 	u64 mmu_recycled;
 	u64 mmu_cache_miss;
 	u64 mmu_unsync;
+	/* CLOCK eviction work (lru_mmu): pages visited, second chances, aging. */
+	u64 lru_hand_steps;
+	u64 lru_ref_skips;
+	u64 lru_age_sptes;
+	u64 lru_age_skips;
+	u64 lru_age_flushes;
 	union {
 		struct {
 			atomic64_t pages_4k;

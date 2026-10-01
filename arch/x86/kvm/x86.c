@@ -235,6 +235,11 @@ const struct _kvm_stats_desc kvm_vm_stats_desc[] = {
 	STATS_DESC_COUNTER(VM, mmu_flooded),
 	STATS_DESC_COUNTER(VM, mmu_recycled),
 	STATS_DESC_COUNTER(VM, mmu_cache_miss),
+	STATS_DESC_COUNTER(VM, lru_hand_steps),
+	STATS_DESC_COUNTER(VM, lru_ref_skips),
+	STATS_DESC_COUNTER(VM, lru_age_sptes),
+	STATS_DESC_COUNTER(VM, lru_age_skips),
+	STATS_DESC_COUNTER(VM, lru_age_flushes),
 	STATS_DESC_ICOUNTER(VM, mmu_unsync),
 	STATS_DESC_ICOUNTER(VM, pages_4k),
 	STATS_DESC_ICOUNTER(VM, pages_2m),
@@ -6307,7 +6312,7 @@ static int kvm_vm_ioctl_set_identity_map_addr(struct kvm *kvm,
 static int kvm_vm_ioctl_set_nr_mmu_pages(struct kvm *kvm,
 					 unsigned long kvm_nr_mmu_pages)
 {
-	if (kvm_nr_mmu_pages < shadow_min_alloc_pages)
+	if (kvm_nr_mmu_pages < (shadow_min_alloc_pages ?: KVM_MIN_ALLOC_MMU_PAGES))
 		return -EINVAL;
 
 	mutex_lock(&kvm->slots_lock);
@@ -13196,7 +13201,10 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 		unsigned long nr_mmu_pages;
 
 		nr_mmu_pages = kvm->nr_memslot_pages / KVM_MEMSLOT_PAGES_TO_MMU_PAGES_RATIO;
-		nr_mmu_pages = shadow_min_alloc_pages;
+		nr_mmu_pages = max(nr_mmu_pages, KVM_MIN_ALLOC_MMU_PAGES);
+		/* A nonzero min_alloc_pages pins the pool, to force eviction in experiments. */
+		if (shadow_min_alloc_pages)
+			nr_mmu_pages = shadow_min_alloc_pages;
 		kvm_mmu_change_mmu_pages(kvm, nr_mmu_pages);
 	}
 

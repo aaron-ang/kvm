@@ -162,6 +162,8 @@ static void mark_vcpu_memory_idle(struct kvm_vm *vm,
 		mark_page_idle(page_idle_fd, pfn);
 	}
 
+	pr_info("vCPU%d: %lu of %lu pages still idle\n", vcpu_idx, still_idle, pages);
+
 	/*
 	 * Assumption: Less than 1% of pages are going to be swapped out from
 	 * under us during this test.
