@@ -8,6 +8,13 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# L1 kernel command line. ept=0 and tdp_mmu=0 make L1's KVM shadow L2's page
+# tables with the legacy MMU (the path this project changes). min_alloc_pages
+# shrinks the shadow page pool so eviction happens. Override with -a.
+L1_APPEND="console=ttyS0 root=/dev/vda1 kvm_intel.ept=0 kvm.tdp_mmu=0 kvm.min_alloc_pages=32"
+# Host CPUs to pin L1 to (taskset list, e.g. 2-5). Empty = no pinning.
+L1_CPUS=""
+
 # Default paths
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 KVM_DIR=$(dirname "$SCRIPT_DIR")
@@ -21,14 +28,16 @@ SOCKET_PATH="/tmp/virtiofs.sock"
 
 # Display usage information
 usage() {
-    echo "Usage: $0 [-k KERNEL_PATH]"
+    echo "Usage: $0 [-k KERNEL_PATH] [-a APPEND] [-c CPUS]"
     echo "  -k KERNEL_PATH  Path to the kernel image (default: $KERNEL)"
+    echo "  -a APPEND       L1 kernel command line (default: $L1_APPEND)"
+    echo "  -c CPUS         Pin L1 to these host CPUs with taskset (e.g. 2-5)"
     echo "  -h              Display this help message"
     exit 1
 }
 
 # Parse command-line options
-while getopts "k:h" opt; do
+while getopts "k:a:c:h" opt; do
     case ${opt} in
     k)
         CUSTOM_KERNEL=$OPTARG
@@ -38,6 +47,12 @@ while getopts "k:h" opt; do
             echo "ERROR: Specified kernel not found: $CUSTOM_KERNEL"
             exit 1
         fi
+        ;;
+    a)
+        L1_APPEND=$OPTARG
+        ;;
+    c)
+        L1_CPUS=$OPTARG
         ;;
     h)
         usage
@@ -93,6 +108,7 @@ packages:
     - lsb-release
     - curl
     - gpg
+    - sshpass
 runcmd:
     - curl -fsSL https://packages.redis.io/gpg | gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
     - chmod 644 /usr/share/keyrings/redis-archive-keyring.gpg
@@ -141,14 +157,14 @@ run_vm() {
     # - Ctrl-A x to exit QEMU session
     # - Ctrl-A h for help
     : <<'COMMANDS'
-echo 0 | sudo tee /sys/module/kvm/parameters/tdp_mmu
-# echo 0 | sudo tee /sys/module/kvm_intel/parameters/ept
-echo 32 | sudo tee /sys/module/kvm/parameters/min_alloc_pages
-echo 1 | sudo tee /sys/module/kvm/parameters/lru_mmu
-echo 0 | sudo tee /sys/module/kvm/parameters/lru_mmu
-
-cat /sys/module/kvm/parameters/lru_mmu
+# ept, tdp_mmu and min_alloc_pages are set on the kernel command line
+# (L1_APPEND above). ept and tdp_mmu are latched at module load; don't flip them at runtime.
+cat /sys/module/kvm_intel/parameters/ept /sys/module/kvm/parameters/tdp_mmu
 cat /sys/module/kvm/parameters/min_alloc_pages
+
+# Policy can be switched at runtime: 0 = FIFO, 1 = CLOCK; lru_age 0/1/2 = off/leaf/parent
+echo 1 | sudo tee /sys/module/kvm/parameters/lru_mmu
+echo 2 | sudo tee /sys/module/kvm/parameters/lru_age
 
 ### Run tests
 
@@ -192,6 +208,12 @@ sed -i '/mount -t virtiofs/s/mount -t virtiofs hostshare \/mnt/mount -t 9p -o tr
 sed -i '/echo.*hostshare.*fstab/s/virtiofs/9p/' ~/user-data
 cloud-localds "$SEED_IMG" ~/user-data
 
+# Repeated, pinned, interleaved FIFO/CLOCK runs (method in redis_repeat.sh).
+# The first boot of L2 runs cloud-init (installs redis), so allow several minutes.
+sudo /mnt/kvm/cse291/redis_repeat.sh -r 5 -o /mnt/kvm/cse291/redis_runs.csv
+
+# Or boot L2 and run by hand:
+
 echo 3 | sudo tee /proc/sys/vm/drop_caches
 sudo qemu-system-x86_64 \
     -drive if=virtio,id=root,media=disk,file="$CLOUD_IMG" \
@@ -219,7 +241,9 @@ sudo /mnt/FlameGraph/stackcollapse-perf.pl /mnt/kvm/redis_bench.perf | \
 # Go back to host VM:
 sudo poweroff -f
 COMMANDS
-    qemu-system-x86_64 \
+    local pin=()
+    [ -n "$L1_CPUS" ] && pin=(taskset -c "$L1_CPUS")
+    "${pin[@]}" qemu-system-x86_64 \
         -kernel "$KERNEL" \
         -drive if=virtio,id=root,media=disk,file="$CLOUD_IMG" \
         -drive if=virtio,file="$SEED_IMG",format=raw \
@@ -231,7 +255,7 @@ COMMANDS
         -device vhost-user-fs-pci,queue-size=1024,chardev=char0,tag=hostshare \
         -netdev user,id=net0,hostfwd=tcp::2222-:22 \
         -device virtio-net-pci,netdev=net0 \
-        -append "console=ttyS0 root=/dev/vda1" \
+        -append "$L1_APPEND" \
         -nographic
 
     # wait for user to exit QEMU session

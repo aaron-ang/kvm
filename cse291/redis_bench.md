@@ -12,93 +12,60 @@ This document compares the performance of Redis under two different page replace
 
 ## Benchmark Results
 
-### FIFO (Default)
-```bash
-ubuntu@ubuntu:~$ redis-cli flushall && redis-benchmark -n 1000000 -r 100000 -P 16 -q
-PING_INLINE: 488519.81 requests per second, p50=1.391 msec                    
-PING_MBULK: 343878.97 requests per second, p50=1.167 msec                    
-SET: 286450.88 requests per second, p50=2.271 msec                    
-GET: 244857.97 requests per second, p50=2.319 msec                    
-INCR: 314465.41 requests per second, p50=2.095 msec                    
-LPUSH: 378357.94 requests per second, p50=1.823 msec                    
-RPUSH: 392618.78 requests per second, p50=1.743 msec                    
-LPOP: 360490.28 requests per second, p50=1.903 msec                    
-RPOP: 358937.53 requests per second, p50=1.871 msec                    
-SADD: 324044.06 requests per second, p50=1.855 msec                    
-HSET: 286123.03 requests per second, p50=2.335 msec                    
-SPOP: 434216.25 requests per second, p50=1.447 msec                    
-ZADD: 158227.84 requests per second, p50=4.255 msec                    
-ZPOPMIN: 430848.75 requests per second, p50=1.439 msec                    
-LPUSH (needed to benchmark LRANGE): 362713.09 requests per second, p50=1.815 msec                    
-LRANGE_100 (first 100 elements): 73324.54 requests per second, p50=4.991 msec                    
-LRANGE_300 (first 300 elements): 18265.17 requests per second, p50=22.911 msec                    
-LRANGE_500 (first 500 elements): 12205.99 requests per second, p50=21.583 msec                    
-LRANGE_600 (first 600 elements): 9559.50 requests per second, p50=36.511 msec                     
-MSET (10 keys): 92575.45 requests per second, p50=7.647 msec                     
-XADD: 278318.97 requests per second, p50=2.591 msec
-```
-
-### LRU (Ours)
-```bash
-ubuntu@ubuntu:~$ redis-cli flushall && redis-benchmark -n 1000000 -r 100000 -P 16 -q
-PING_INLINE: 313676.28 requests per second, p50=1.655 msec                    
-PING_MBULK: 470588.25 requests per second, p50=1.255 msec                    
-SET: 330469.25 requests per second, p50=2.079 msec                    
-GET: 362187.62 requests per second, p50=1.823 msec                    
-INCR: 316555.88 requests per second, p50=2.143 msec                    
-LPUSH: 332005.31 requests per second, p50=1.895 msec                    
-RPUSH: 362056.47 requests per second, p50=1.799 msec                    
-LPOP: 358166.19 requests per second, p50=1.959 msec                    
-RPOP: 346860.91 requests per second, p50=1.919 msec                    
-SADD: 345423.16 requests per second, p50=1.927 msec                    
-HSET: 250438.27 requests per second, p50=2.655 msec                    
-SPOP: 433839.47 requests per second, p50=1.487 msec                    
-ZADD: 144696.86 requests per second, p50=4.591 msec                    
-ZPOPMIN: 427167.88 requests per second, p50=1.447 msec                    
-LPUSH (needed to benchmark LRANGE): 299132.53 requests per second, p50=1.975 msec                    
-LRANGE_100 (first 100 elements): 67640.69 requests per second, p50=5.511 msec                    
-LRANGE_300 (first 300 elements): 16547.80 requests per second, p50=25.535 msec                    
-LRANGE_500 (first 500 elements): 12220.75 requests per second, p50=20.687 msec                    
-LRANGE_600 (first 600 elements): 9668.28 requests per second, p50=31.823 msec                     
-MSET (10 keys): 89485.46 requests per second, p50=7.855 msec                     
-XADD: 255232.27 requests per second, p50=2.695 msec
-```
+Raw redis-benchmark output and per-run eviction counters are in [raw_results.txt](raw_results.txt).
 
 ## Performance Analysis
 
 ### Key Observations
 
-| Operation   | FIFO Performance | LRU Performance | % Difference | Notes                                          |
-| ----------- | ---------------- | --------------- | ------------ | ---------------------------------------------- |
-| PING_INLINE | 488,520 req/s    | 313,676 req/s   | -35.8%       | Simple operation shows FIFO overhead advantage |
-| PING_MBULK  | 343,879 req/s    | 470,588 req/s   | +36.8%       | LRU performs better for bulk ping              |
-| GET         | 244,858 req/s    | 362,188 req/s   | +47.9%       | LRU shows significant advantage for reads      |
-| SET         | 286,451 req/s    | 330,469 req/s   | +15.4%       | LRU performs better for writes                 |
-| ZADD        | 158,228 req/s    | 144,697 req/s   | -8.6%        | Complex operations show FIFO advantage         |
-| LRANGE_300  | 18,265 req/s     | 16,548 req/s    | -9.4%        | Bulk retrieval slightly favors FIFO            |
-| LRANGE_600  | 9,560 req/s      | 9,668 req/s     | +1.1%        | Larger bulk retrieval slightly favors LRU      |
+| Operation   | FIFO Performance | LRU Performance | % Difference |
+| ----------- | ---------------- | --------------- | ------------ |
+| PING_INLINE | 488,520 req/s    | 313,676 req/s   | -35.8%       |
+| PING_MBULK  | 343,879 req/s    | 470,588 req/s   | +36.8%       |
+| GET         | 244,858 req/s    | 362,188 req/s   | +47.9%       |
+| SET         | 286,451 req/s    | 330,469 req/s   | +15.4%       |
+| ZADD        | 158,228 req/s    | 144,697 req/s   | -8.6%        |
+| LRANGE_300  | 18,265 req/s     | 16,548 req/s    | -9.4%        |
+| LRANGE_600  | 9,560 req/s      | 9,668 req/s     | +1.1%        |
 
-### Performance Characteristics
+### How to read these numbers
 
-1. **Command Complexity Impact**
-   * **Simple Operations**: FIFO excels at basic operations like PING_INLINE due to minimal overhead.
-   * **Data Access Operations**: LRU demonstrates notably better performance for GET operations (+47.9%), suggesting its page management benefits read-heavy workloads.
-   * **Write Operations**: LRU also performs better on SET operations (+15.4%), indicating efficient page allocation for writes.
-   * **List Operations**: FIFO shows advantages for LPUSH and RPUSH operations, while results are mixed for different LRANGE sizes.
+These are single runs of each policy, and they don't separate the eviction policy from run-to-run noise:
 
-2. **Latency Analysis**
-   * **Read Latency**: GET operations show lower latency with LRU (1.823ms vs 2.319ms), a 21.4% improvement.
-   * **Complex Operations**: While LRANGE_300 shows higher latency in LRU, notably LRANGE_500 and LRANGE_600 perform better under LRU, with LRANGE_600 showing significant latency improvement (31.823ms vs 36.511ms).
-   * **Overall P50**: Most operations show comparable latency profiles between the two policies, with differences typically under 0.5ms.
+* **PING moved as much as GET.** PING never touches the eviction code, yet PING_INLINE was 35.8% slower under LRU and PING_MBULK 36.8% faster. A command the policy can't affect swinging by ±36% means the noise is at least that large, so the +47.9% on GET and +15.4% on SET are within it.
+* **No repeats or variance.** Each policy ran once, so there is no way to tell a real difference from noise.
+* **EPT was on.** The legacy MMU was managing EPT tables rather than shadows of guest page tables, so this measured eviction of direct-map pages, not the shadow paging the project targets.
+* **CLOCK without hardware accessed bits barely differs from FIFO.** The eviction counters below show why: with `lru_ref` alone, a hot page's bit is set only when it's created, so after one lap the sweep evicts in FIFO order.
 
-3. **Memory Management Implications**
-   * LRU's overhead affects throughput for simple operations but its intelligent page replacement appears to benefit data retrieval patterns.
-   * FIFO's simplicity provides an advantage for high-throughput, low-complexity operations where memory access patterns are less important.
+The Redis numbers are kept as a record of what we ran. They don't show that either policy is faster.
+
+## Eviction Counters with Reuse
+
+`tools/testing/selftests/kvm/x86/lru_reuse_test.c` replays a seeded trace with a hot set (16 of 256 regions of 2 MiB, 90% of accesses) under true shadow paging (`kvm_amd.npt=0`, `kvm.tdp_mmu=0`) in QEMU TCG. Being emulated, it gives KVM's counters, not timings. Page faults (`pf_taken`), mean of 3 seeds, 200,000 measured accesses after 100,000 warm-up accesses:
+
+| Workload | Pool pages | FIFO    | CLOCK, marked on creation | CLOCK, marked on fill too | + leaf A bits (`lru_age=1`) | + parent A bits (`lru_age=2`) |
+| -------- | ---------- | ------- | ------------------------- | ------------------------- | --------------------------- | ----------------------------- |
+| hot      | 32         | 212,854 | 212,854 (0%)              | 212,854 (0%)              | 204,270 (−4%)               | 202,913 (−5%)                 |
+| hot      | 64         | 175,223 | 156,379 (−11%)            | 68,112 (−61%)             | 78,218 (−55%)               | 31,104 (−82%)                 |
+| hot      | 128        | 119,108 | 122,539 (+3%)             | 42,421 (−64%)             | 32,795 (−72%)               | 40,520 (−66%)                 |
+| scan     | 32         | 213,098 | 213,098 (0%)              | 213,098 (0%)              | 204,550 (−4%)               | 203,455 (−5%)                 |
+| scan     | 64         | 179,150 | 161,438 (−10%)            | 36,200 (−80%)             | 31,957 (−82%)               | 36,431 (−80%)                 |
+| scan     | 128        | 143,191 | 110,865 (−23%)            | 31,371 (−78%)             | 28,686 (−80%)               | 24,027 (−83%)                 |
+
+* "Marked on creation": `lru_ref` is set only when a shadow page is looked up or created. "Marked on fill too": `mmu_set_spte()` also sets it on every non-prefetch SPTE fill. The two A-bit columns add `lru_age` on top of marking on fill: leaf mode checks the page's own SPTEs (up to 512), parent mode checks the parent SPTE(s) through `sp->parent_ptes`.
+* FIFO and "marked on creation" come from the kernel before marking on fill; the other columns from the current kernel. They are comparable: CLOCK at 32 pages on the current kernel reproduces the earlier FIFO counts seed for seed.
+* Earlier `lru_age` numbers in this section were replaced. They came from a run where `lru_reuse_test.c` overflowed its stats arrays (`before[5]`/`after[5]` holding 10 stats).
+* Marking on fill does most of the work: 61–80% fewer faults and 11–30% fewer zaps (`mmu_shadow_zapped`) than FIFO at 64 and 128 pages. At 32 pages it matches FIFO; both A-bit modes zap 23–24% fewer pages there.
+* A bits add mixed gains on top. Parent mode is best in 4 of 6 rows and never much worse. Leaf mode is best at hot/128 but worse than plain CLOCK at hot/64.
+* Seed noise: plain CLOCK hot/64 ranged 65,270–71,759; parent hot/128 36,234–48,134; leaf scan/128 23,853–38,077. Differences of a few points between CLOCK variants are within noise; the gap to FIFO is not.
+* Cost (new VM stats): `lru_age_sptes` per zapped page is 1,145–1,352 for leaf and 1.2–2.3 for parent. `lru_age_flushes` (TLB flush when a sweep clears A bits but zaps nothing) is ~255–288 per run at 32 pages and ~0 at 64/128.
+* With the default pool (`min_alloc_pages=0`, upstream sizing), the test zaps nothing: 34,728 faults under both FIFO and CLOCK + parent.
+* A workload that cycles through every region in order (earlier kernel, one seed) gained at most 7% from any policy, and `lru_age` was about 1% worse at 32 pages.
 
 ## Conclusions
 
-* **FIFO Benefits**: Higher throughput for simple operations and complex sorted set operations. Better choice for write-heavy workloads with simple access patterns.
-
-* **LRU Benefits**: Superior performance for data retrieval operations and better overall latency for read operations. Preferred for read-heavy workloads with localized access patterns.
-
-* **Production Recommendation**: For general Redis usage in our environment, the performance profile suggests LRU would be advantageous for applications with read-heavy workloads or those benefiting from locality of reference, while FIFO might be better for high-throughput, write-intensive applications.
+* The Redis runs above are too noisy to rank the policies, and they came from a build where `lru_ref` was never set. `redis_repeat.sh` re-runs them with EPT off, repeats, interleaving and pinning.
+* CLOCK needs a signal for accesses that don't fault. Setting `lru_ref` on every SPTE fill provides most of it and cuts faults sharply on workloads with reuse; with the bit set only on creation, CLOCK behaves close to FIFO.
+* The hardware Accessed bits add mixed gains on top. Parent mode (`lru_age=2`) is best in 4 of 6 configurations, never much worse, reads ~2 SPTEs per zap, and doesn't touch the leaf A bits that host reclaim uses (`kvm_age_gfn`/`kvm_test_age_gfn`), so it is the recommended setting. Leaf mode (`lru_age=1`) reads ~1,300 SPTEs per zap, is mixed (worse than plain CLOCK at hot/64), and shares bits with host reclaim.
+* Reclaim check: `access_tracking_perf_test -v 4 -b 64M` (`min_alloc_pages=64`) reported "0 of 16384 pages still idle" on every vCPU under FIFO, CLOCK, leaf, and parent, so no pages were falsely idle. The test isn't designed to catch interference from aging.
+* The default stays `lru_age=0` because all measurements are emulated (TCG); there are no native timings. Open questions: timings on real hardware and the cost of scanning SPTEs under `mmu_lock`.

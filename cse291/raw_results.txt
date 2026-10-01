@@ -1,0 +1,177 @@
+Raw results for redis_bench.md
+==============================
+
+Build caveats:
+- Redis runs: single run per policy, redis-benchmark inside L2 against localhost,
+  EPT on, from build 1b9d1922 (every mark_kvm_page_accessed() commented out).
+  Not a valid CLOCK measurement; kept as a record.
+- Reuse runs: lru_reuse_test.c under QEMU TCG (kvm_amd.npt=0 kvm.tdp_mmu=0).
+  Counters only, no timings. Tables are markdown so they diff and paste cleanly.
+
+
+1. Redis (redis-benchmark -n 1000000 -r 100000 -P 16 -q)
+----------------------------------------------------------
+
+### FIFO (Default)
+```bash
+ubuntu@ubuntu:~$ redis-cli flushall && redis-benchmark -n 1000000 -r 100000 -P 16 -q
+PING_INLINE: 488519.81 requests per second, p50=1.391 msec                    
+PING_MBULK: 343878.97 requests per second, p50=1.167 msec                    
+SET: 286450.88 requests per second, p50=2.271 msec                    
+GET: 244857.97 requests per second, p50=2.319 msec                    
+INCR: 314465.41 requests per second, p50=2.095 msec                    
+LPUSH: 378357.94 requests per second, p50=1.823 msec                    
+RPUSH: 392618.78 requests per second, p50=1.743 msec                    
+LPOP: 360490.28 requests per second, p50=1.903 msec                    
+RPOP: 358937.53 requests per second, p50=1.871 msec                    
+SADD: 324044.06 requests per second, p50=1.855 msec                    
+HSET: 286123.03 requests per second, p50=2.335 msec                    
+SPOP: 434216.25 requests per second, p50=1.447 msec                    
+ZADD: 158227.84 requests per second, p50=4.255 msec                    
+ZPOPMIN: 430848.75 requests per second, p50=1.439 msec                    
+LPUSH (needed to benchmark LRANGE): 362713.09 requests per second, p50=1.815 msec                    
+LRANGE_100 (first 100 elements): 73324.54 requests per second, p50=4.991 msec                    
+LRANGE_300 (first 300 elements): 18265.17 requests per second, p50=22.911 msec                    
+LRANGE_500 (first 500 elements): 12205.99 requests per second, p50=21.583 msec                    
+LRANGE_600 (first 600 elements): 9559.50 requests per second, p50=36.511 msec                     
+MSET (10 keys): 92575.45 requests per second, p50=7.647 msec                     
+XADD: 278318.97 requests per second, p50=2.591 msec
+```
+
+### LRU (Ours)
+```bash
+ubuntu@ubuntu:~$ redis-cli flushall && redis-benchmark -n 1000000 -r 100000 -P 16 -q
+PING_INLINE: 313676.28 requests per second, p50=1.655 msec                    
+PING_MBULK: 470588.25 requests per second, p50=1.255 msec                    
+SET: 330469.25 requests per second, p50=2.079 msec                    
+GET: 362187.62 requests per second, p50=1.823 msec                    
+INCR: 316555.88 requests per second, p50=2.143 msec                    
+LPUSH: 332005.31 requests per second, p50=1.895 msec                    
+RPUSH: 362056.47 requests per second, p50=1.799 msec                    
+LPOP: 358166.19 requests per second, p50=1.959 msec                    
+RPOP: 346860.91 requests per second, p50=1.919 msec                    
+SADD: 345423.16 requests per second, p50=1.927 msec                    
+HSET: 250438.27 requests per second, p50=2.655 msec                    
+SPOP: 433839.47 requests per second, p50=1.487 msec                    
+ZADD: 144696.86 requests per second, p50=4.591 msec                    
+ZPOPMIN: 427167.88 requests per second, p50=1.447 msec                    
+LPUSH (needed to benchmark LRANGE): 299132.53 requests per second, p50=1.975 msec                    
+LRANGE_100 (first 100 elements): 67640.69 requests per second, p50=5.511 msec                    
+LRANGE_300 (first 300 elements): 16547.80 requests per second, p50=25.535 msec                    
+LRANGE_500 (first 500 elements): 12220.75 requests per second, p50=20.687 msec                    
+LRANGE_600 (first 600 elements): 9668.28 requests per second, p50=31.823 msec                     
+MSET (10 keys): 89485.46 requests per second, p50=7.855 msec                     
+XADD: 255232.27 requests per second, p50=2.695 msec
+```
+
+
+2. Reuse test
+-------------
+
+Raw runs, current kernel (`lru_mmu=Y`; `lru_age` 0 = marked on fill, 1 = leaf, 2 = parent):
+
+| Workload | Pool | Seed | `lru_age` | `pf_taken` | `mmu_shadow_zapped` | `lru_hand_steps` | `lru_ref_skips` | `lru_age_sptes` | `lru_age_skips` | `lru_age_flushes` |
+| -------- | ---- | ---- | --------- | ---------- | ------------------- | ---------------- | --------------- | --------------- | --------------- | ----------------- |
+| hot | 32 | 1 | 0 | 212,649 | 92,316 | 202,541 | 105,829 | 0 | 0 | 0 |
+| hot | 32 | 1 | 1 | 204,295 | 69,882 | 296,530 | 102,476 | 93,960,192 | 113,634 | 217 |
+| hot | 32 | 1 | 2 | 202,868 | 70,720 | 263,110 | 99,393 | 119,888 | 84,447 | 295 |
+| hot | 32 | 2 | 0 | 213,009 | 93,324 | 204,652 | 106,884 | 0 | 0 | 0 |
+| hot | 32 | 2 | 1 | 204,498 | 71,022 | 298,060 | 102,414 | 94,750,720 | 114,038 | 257 |
+| hot | 32 | 2 | 2 | 203,057 | 71,568 | 267,382 | 100,874 | 122,147 | 86,221 | 290 |
+| hot | 32 | 3 | 0 | 212,903 | 93,261 | 204,483 | 106,781 | 0 | 0 | 0 |
+| hot | 32 | 3 | 1 | 204,016 | 70,556 | 295,312 | 101,421 | 93,937,152 | 112,915 | 291 |
+| hot | 32 | 3 | 2 | 202,814 | 71,149 | 265,405 | 100,176 | 120,875 | 85,439 | 280 |
+| hot | 64 | 1 | 0 | 65,270 | 21,735 | 52,099 | 29,825 | 0 | 0 | 0 |
+| hot | 64 | 1 | 1 | 77,195 | 20,353 | 87,037 | 33,318 | 26,813,440 | 32,017 | 0 |
+| hot | 64 | 1 | 2 | 29,068 | 19,509 | 78,339 | 29,742 | 37,827 | 27,695 | 0 |
+| hot | 64 | 2 | 0 | 67,308 | 22,029 | 52,632 | 30,058 | 0 | 0 | 0 |
+| hot | 64 | 2 | 1 | 78,673 | 20,690 | 88,102 | 33,809 | 27,102,720 | 32,245 | 1 |
+| hot | 64 | 2 | 2 | 29,031 | 19,677 | 79,111 | 30,087 | 38,180 | 27,942 | 0 |
+| hot | 64 | 3 | 0 | 71,759 | 22,491 | 53,093 | 30,058 | 0 | 0 | 0 |
+| hot | 64 | 3 | 1 | 78,786 | 20,553 | 87,502 | 33,649 | 26,882,048 | 31,951 | 2 |
+| hot | 64 | 3 | 2 | 35,212 | 19,655 | 78,210 | 30,081 | 36,527 | 27,113 | 1 |
+| hot | 128 | 1 | 0 | 40,295 | 13,398 | 33,495 | 19,923 | 0 | 0 | 0 |
+| hot | 128 | 1 | 1 | 32,020 | 12,809 | 52,938 | 18,926 | 17,232,896 | 20,849 | 0 |
+| hot | 128 | 1 | 2 | 48,134 | 13,121 | 52,633 | 19,639 | 28,324 | 19,524 | 0 |
+| hot | 128 | 2 | 0 | 43,309 | 13,377 | 33,703 | 20,149 | 0 | 0 | 0 |
+| hot | 128 | 2 | 1 | 34,100 | 12,807 | 53,286 | 19,143 | 17,297,408 | 20,977 | 0 |
+| hot | 128 | 2 | 2 | 37,193 | 12,830 | 53,107 | 19,015 | 31,143 | 20,903 | 0 |
+| hot | 128 | 3 | 0 | 43,660 | 13,356 | 33,557 | 20,025 | 0 | 0 | 0 |
+| hot | 128 | 3 | 1 | 32,266 | 12,682 | 52,928 | 18,894 | 17,242,624 | 20,995 | 0 |
+| hot | 128 | 3 | 2 | 36,234 | 12,744 | 52,818 | 19,062 | 30,794 | 20,655 | 0 |
+| scan | 32 | 1 | 0 | 212,950 | 93,597 | 205,067 | 107,013 | 0 | 0 | 0 |
+| scan | 32 | 1 | 1 | 204,416 | 71,050 | 296,066 | 101,632 | 94,183,424 | 112,902 | 270 |
+| scan | 32 | 1 | 2 | 203,292 | 71,647 | 266,856 | 100,818 | 120,701 | 85,694 | 274 |
+| scan | 32 | 2 | 0 | 213,141 | 94,164 | 206,257 | 107,609 | 0 | 0 | 0 |
+| scan | 32 | 2 | 1 | 204,646 | 71,688 | 300,247 | 103,092 | 95,488,512 | 114,813 | 273 |
+| scan | 32 | 2 | 2 | 203,581 | 72,462 | 269,965 | 101,922 | 122,530 | 86,777 | 291 |
+| scan | 32 | 3 | 0 | 213,203 | 94,353 | 206,530 | 107,684 | 0 | 0 | 0 |
+| scan | 32 | 3 | 1 | 204,588 | 71,569 | 301,027 | 103,663 | 95,587,840 | 115,126 | 274 |
+| scan | 32 | 3 | 2 | 203,491 | 72,265 | 269,087 | 101,527 | 122,483 | 86,548 | 265 |
+| scan | 64 | 1 | 0 | 38,249 | 23,100 | 55,102 | 31,452 | 0 | 0 | 0 |
+| scan | 64 | 1 | 1 | 32,433 | 22,595 | 86,131 | 31,348 | 27,495,936 | 31,108 | 0 |
+| scan | 64 | 1 | 2 | 34,799 | 21,993 | 85,865 | 31,771 | 42,013 | 30,534 | 0 |
+| scan | 64 | 2 | 0 | 37,219 | 23,289 | 55,652 | 31,808 | 0 | 0 | 0 |
+| scan | 64 | 2 | 1 | 30,256 | 22,260 | 85,840 | 31,346 | 27,358,208 | 31,174 | 0 |
+| scan | 64 | 2 | 2 | 39,689 | 22,486 | 87,835 | 32,827 | 42,141 | 30,962 | 0 |
+| scan | 64 | 3 | 0 | 33,132 | 22,953 | 55,097 | 31,597 | 0 | 0 | 0 |
+| scan | 64 | 3 | 1 | 33,182 | 22,827 | 87,197 | 31,833 | 27,783,168 | 31,437 | 0 |
+| scan | 64 | 3 | 2 | 34,806 | 22,243 | 86,826 | 32,160 | 42,466 | 30,839 | 0 |
+| scan | 128 | 1 | 0 | 29,752 | 21,042 | 45,405 | 24,162 | 0 | 0 | 0 |
+| scan | 128 | 1 | 1 | 23,853 | 20,630 | 69,850 | 24,289 | 23,108,096 | 24,503 | 0 |
+| scan | 128 | 1 | 2 | 23,853 | 20,630 | 69,850 | 24,289 | 24,825 | 24,503 | 0 |
+| scan | 128 | 2 | 0 | 32,889 | 21,399 | 45,927 | 24,325 | 0 | 0 | 0 |
+| scan | 128 | 2 | 1 | 24,127 | 20,886 | 70,566 | 24,516 | 23,356,416 | 24,732 | 0 |
+| scan | 128 | 2 | 2 | 24,127 | 20,886 | 70,566 | 24,516 | 25,057 | 24,732 | 0 |
+| scan | 128 | 3 | 0 | 31,472 | 21,315 | 45,878 | 24,360 | 0 | 0 | 0 |
+| scan | 128 | 3 | 1 | 38,077 | 20,477 | 71,309 | 22,898 | 24,537,600 | 27,448 | 0 |
+| scan | 128 | 3 | 2 | 24,100 | 20,865 | 70,545 | 24,517 | 25,055 | 24,731 | 0 |
+
+Raw runs, earlier kernel (FIFO = `lru_mmu=N`, CLOCK marked on creation = `lru_mmu=Y`, both `lru_age=N`; the `lru_age=Y` runs from this kernel are omitted as invalid):
+
+| Workload | Pool | Seed | Policy | `pf_taken` | `mmu_shadow_zapped` |
+| -------- | ---- | ---- | ------ | ---------- | ------------------- |
+| hot | 32 | 1 | FIFO | 212,649 | 92,316 |
+| hot | 32 | 1 | CLOCK | 212,649 | 92,316 |
+| hot | 32 | 2 | FIFO | 213,009 | 93,324 |
+| hot | 32 | 2 | CLOCK | 213,009 | 93,324 |
+| hot | 32 | 3 | FIFO | 212,903 | 93,261 |
+| hot | 32 | 3 | CLOCK | 212,903 | 93,261 |
+| hot | 64 | 1 | FIFO | 174,989 | 28,518 |
+| hot | 64 | 1 | FIFO | 18,778 | 2,814 |
+| hot | 64 | 1 | CLOCK | 153,522 | 28,035 |
+| hot | 64 | 1 | CLOCK | 18,853 | 2,835 |
+| hot | 64 | 2 | FIFO | 175,515 | 28,854 |
+| hot | 64 | 2 | CLOCK | 160,868 | 28,518 |
+| hot | 64 | 3 | FIFO | 175,165 | 28,602 |
+| hot | 64 | 3 | CLOCK | 154,747 | 28,161 |
+| hot | 128 | 1 | FIFO | 118,819 | 14,973 |
+| hot | 128 | 1 | CLOCK | 121,171 | 15,162 |
+| hot | 128 | 2 | FIFO | 119,454 | 15,099 |
+| hot | 128 | 2 | CLOCK | 122,910 | 15,246 |
+| hot | 128 | 3 | FIFO | 119,051 | 15,015 |
+| hot | 128 | 3 | CLOCK | 123,535 | 15,246 |
+| scan | 32 | 1 | FIFO | 212,950 | 93,597 |
+| scan | 32 | 1 | CLOCK | 212,950 | 93,597 |
+| scan | 32 | 2 | FIFO | 213,141 | 94,164 |
+| scan | 32 | 2 | CLOCK | 213,141 | 94,164 |
+| scan | 32 | 3 | FIFO | 213,203 | 94,353 |
+| scan | 32 | 3 | CLOCK | 213,203 | 94,353 |
+| scan | 64 | 1 | FIFO | 178,837 | 32,592 |
+| scan | 64 | 1 | CLOCK | 157,892 | 31,878 |
+| scan | 64 | 2 | FIFO | 179,489 | 33,012 |
+| scan | 64 | 2 | CLOCK | 165,793 | 32,508 |
+| scan | 64 | 3 | FIFO | 179,125 | 32,949 |
+| scan | 64 | 3 | CLOCK | 160,628 | 32,277 |
+| scan | 128 | 1 | FIFO | 142,879 | 24,360 |
+| scan | 128 | 1 | CLOCK | 110,201 | 22,470 |
+| scan | 128 | 2 | FIFO | 143,396 | 24,612 |
+| scan | 128 | 2 | CLOCK | 111,192 | 22,743 |
+| scan | 128 | 3 | FIFO | 143,298 | 24,612 |
+| scan | 128 | 3 | CLOCK | 111,202 | 22,701 |
+| loop | 32 | 1 | FIFO | 250,004 | 262,500 |
+| loop | 32 | 1 | CLOCK | 250,004 | 262,500 |
+| loop | 64 | 1 | FIFO | 232,438 | 227,031 |
+| loop | 64 | 1 | CLOCK | 215,792 | 221,046 |
+| loop | 128 | 1 | FIFO | 212,004 | 210,000 |
+| loop | 128 | 1 | CLOCK | 205,914 | 206,892 |
