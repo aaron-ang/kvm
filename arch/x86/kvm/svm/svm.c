@@ -4843,7 +4843,7 @@ static int svm_check_emulate_instruction(struct kvm_vcpu *vcpu, int emul_type,
 	u64 error_code;
 
 	/* Check that emulation is possible during event vectoring */
-	if ((svm->vmcb->control.exit_int_info & SVM_EXITINTINFO_TYPE_MASK) &&
+	if ((svm->vmcb->control.exit_int_info & SVM_EXITINTINFO_VALID) &&
 	    !kvm_can_emulate_event_vectoring(emul_type))
 		return X86EMUL_UNHANDLEABLE_VECTORING;
 
