@@ -2697,7 +2697,10 @@ static bool kvm_mmu_sp_test_and_clear_young(struct kvm *kvm,
  * The sweep is bounded to two full passes over the list: after one pass
  * every lru_ref has been cleared, so anything left after the second pass
  * is an active root (or, with lru_age, was accessed again during the sweep;
- * the caller copes with getting fewer pages than it asked for).
+ * the caller copes with getting fewer pages than it asked for).  Neither
+ * lru_ref nor the Accessed bits are protected by mmu_lock, so running vCPUs
+ * can re-reference every page during the sweep; the caller falls back to
+ * FIFO when nothing was zapped.
  * n_used_mmu_pages is an upper bound on the number of
  * entries in active_mmu_pages, and zapping only shrinks the list.
  */
@@ -2760,6 +2763,7 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 	unsigned long total_zapped = 0;
 	struct kvm_mmu_page *sp, *tmp;
 	LIST_HEAD(invalid_list);
+	bool aged = false;
 	bool unstable;
 	int nr_zapped;
 
@@ -2767,20 +2771,17 @@ static unsigned long kvm_mmu_zap_oldest_mmu_pages(struct kvm *kvm,
 		return 0;
 
 	if (lru_mmu) {
-		bool aged = false;
-
 		total_zapped = kvm_mmu_clock_zap_pages(kvm, nr_to_zap,
 						       &invalid_list, &aged);
+		if (total_zapped)
+			goto commit;
+
 		/*
-		 * Cleared Accessed bits are only set again once the CPU walks
-		 * the page tables, so flush cached translations.  Committing a
-		 * zap already flushes.
+		 * Every non-root page was referenced again during the sweep.
+		 * Zap in FIFO order rather than fail the allocation with
+		 * -ENOSPC, which kills the vCPU.
 		 */
-		if (aged && list_empty(&invalid_list)) {
-			kvm_flush_remote_tlbs(kvm);
-			kvm->stat.lru_age_flushes++;
-		}
-		goto commit;
+		kvm->stat.lru_fifo_fallbacks++;
 	}
 
 restart:
@@ -2803,6 +2804,15 @@ restart:
 	}
 
 commit:
+	/*
+	 * Cleared Accessed bits are only set again once the CPU walks the page
+	 * tables, so flush cached translations.  Committing a zap already
+	 * flushes.
+	 */
+	if (aged && list_empty(&invalid_list)) {
+		kvm_flush_remote_tlbs(kvm);
+		kvm->stat.lru_age_flushes++;
+	}
 	kvm_mmu_commit_zap_page(kvm, &invalid_list);
 
 	kvm->stat.mmu_recycled += total_zapped;

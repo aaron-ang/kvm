@@ -1580,6 +1580,7 @@ struct kvm_vm_stat {
 	u64 lru_age_sptes;
 	u64 lru_age_skips;
 	u64 lru_age_flushes;
+	u64 lru_fifo_fallbacks;
 	union {
 		struct {
 			atomic64_t pages_4k;
