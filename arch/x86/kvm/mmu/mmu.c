@@ -2659,7 +2659,7 @@ static bool spte_test_and_clear_young(u64 *sptep)
  * set a bit again; the caller flushes after every sweep that cleared bits.
  */
 static bool kvm_mmu_sp_test_and_clear_young(struct kvm *kvm,
-					    struct kvm_mmu_page *sp)
+					    struct kvm_mmu_page *sp, uint age)
 {
 	struct rmap_iterator iter;
 	bool young = false;
@@ -2669,7 +2669,7 @@ static bool kvm_mmu_sp_test_and_clear_young(struct kvm *kvm,
 	if (!shadow_accessed_mask)
 		return false;
 
-	if (lru_age == LRU_AGE_PARENT) {
+	if (age == LRU_AGE_PARENT) {
 		for_each_rmap_spte(&sp->parent_ptes, &iter, sptep) {
 			young |= spte_test_and_clear_young(sptep);
 			kvm->stat.lru_age_sptes++;
@@ -2695,7 +2695,10 @@ static bool kvm_mmu_sp_test_and_clear_young(struct kvm *kvm,
  * current hand, mirroring the "goto restart" of the FIFO path.
  *
  * Each visit clears at most one signal, lru_ref before the Accessed bits,
- * so a page with both set is skipped twice.  The sweep is bounded to one
+ * so a page with both set is skipped twice.  This is deliberate: lru_ref
+ * records a fault or lookup in KVM that used the page and the Accessed bits
+ * record a hardware walk through it, so a page used both ways is kept one
+ * lap longer.  The sweep is bounded to one
  * full pass per signal plus one to zap: two passes over the list without
  * lru_age, three with it.  Anything still unzapped after the last pass is
  * an active root or was referenced again during the sweep (the caller
@@ -2705,13 +2708,17 @@ static bool kvm_mmu_sp_test_and_clear_young(struct kvm *kvm,
  * when nothing was zapped.
  * n_used_mmu_pages is an upper bound on the number of
  * entries in active_mmu_pages, and zapping only shrinks the list.
+ *
+ * lru_age is writable at runtime; read it once so that the budget and every
+ * visit in one sweep agree on the number of signals.
  */
 static unsigned long kvm_mmu_clock_zap_pages(struct kvm *kvm,
 					     unsigned long nr_to_zap,
 					     struct list_head *invalid_list,
 					     bool *aged)
 {
-	unsigned long budget = (lru_age ? 3 : 2) * kvm->arch.n_used_mmu_pages;
+	uint age = READ_ONCE(lru_age);
+	unsigned long budget = (age ? 3 : 2) * kvm->arch.n_used_mmu_pages;
 	unsigned long total_zapped = 0;
 	struct kvm_mmu_page *sp;
 	int nr_zapped;
@@ -2744,7 +2751,7 @@ static unsigned long kvm_mmu_clock_zap_pages(struct kvm *kvm,
 			continue;
 		}
 
-		if (lru_age && kvm_mmu_sp_test_and_clear_young(kvm, sp)) {
+		if (age && kvm_mmu_sp_test_and_clear_young(kvm, sp, age)) {
 			kvm->stat.lru_age_skips++;
 			*aged = true;
 			continue;
