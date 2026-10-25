@@ -2694,13 +2694,15 @@ static bool kvm_mmu_sp_test_and_clear_young(struct kvm *kvm,
  * list is "unstable"), so each iteration effectively restarts from the
  * current hand, mirroring the "goto restart" of the FIFO path.
  *
- * The sweep is bounded to two full passes over the list: after one pass
- * every lru_ref has been cleared, so anything left after the second pass
- * is an active root (or, with lru_age, was accessed again during the sweep;
- * the caller copes with getting fewer pages than it asked for).  Neither
- * lru_ref nor the Accessed bits are protected by mmu_lock, so running vCPUs
- * can re-reference every page during the sweep; the caller falls back to
- * FIFO when nothing was zapped.
+ * Each visit clears at most one signal, lru_ref before the Accessed bits,
+ * so a page with both set is skipped twice.  The sweep is bounded to one
+ * full pass per signal plus one to zap: two passes over the list without
+ * lru_age, three with it.  Anything still unzapped after the last pass is
+ * an active root or was referenced again during the sweep (the caller
+ * copes with getting fewer pages than it asked for).  Neither lru_ref nor
+ * the Accessed bits are protected by mmu_lock, so running vCPUs can
+ * re-reference every page during the sweep; the caller falls back to FIFO
+ * when nothing was zapped.
  * n_used_mmu_pages is an upper bound on the number of
  * entries in active_mmu_pages, and zapping only shrinks the list.
  */
@@ -2709,7 +2711,7 @@ static unsigned long kvm_mmu_clock_zap_pages(struct kvm *kvm,
 					     struct list_head *invalid_list,
 					     bool *aged)
 {
-	unsigned long budget = 2 * kvm->arch.n_used_mmu_pages;
+	unsigned long budget = (lru_age ? 3 : 2) * kvm->arch.n_used_mmu_pages;
 	unsigned long total_zapped = 0;
 	struct kvm_mmu_page *sp;
 	int nr_zapped;
