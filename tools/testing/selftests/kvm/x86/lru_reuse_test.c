@@ -21,11 +21,11 @@
 #include "test_util.h"
 #include "ucall_common.h"
 
-#define TEST_SLOT	1
-#define TEST_GPA	0x100000000ull
-#define TEST_GVA	0xc0000000ull
-#define REGION_SIZE	(2ull << 20)
-#define REGION_PAGES	(REGION_SIZE / PAGE_SIZE)
+#define TEST_SLOT 1
+#define TEST_GPA 0x100000000ull
+#define TEST_GVA 0xc0000000ull
+#define REGION_SIZE (2ull << 20)
+#define REGION_PAGES (REGION_SIZE / PAGE_SIZE)
 
 enum { MODE_HOT, MODE_SCAN, MODE_LOOP };
 
@@ -49,7 +49,8 @@ static uint64_t next_rand(uint64_t *s)
 
 static void touch(uint64_t region, uint64_t page)
 {
-	*(volatile uint8_t *)(TEST_GVA + region * REGION_SIZE + page * PAGE_SIZE) = 1;
+	*(volatile uint8_t *)(TEST_GVA + region * REGION_SIZE +
+			      page * PAGE_SIZE) = 1;
 }
 
 /*
@@ -68,15 +69,18 @@ static void do_accesses(uint64_t n, uint64_t *s, uint64_t *scan_pos)
 	for (i = 0; i < n; i++) {
 		r = next_rand(s);
 		if (mode == MODE_LOOP) {
-			touch(*scan_pos % nr_regions, (*scan_pos / nr_regions) % REGION_PAGES);
+			touch(*scan_pos % nr_regions,
+			      (*scan_pos / nr_regions) % REGION_PAGES);
 			(*scan_pos)++;
 		} else if (r % 100 < hot_pct) {
 			touch((r >> 8) % hot_regions, (r >> 32) % REGION_PAGES);
 		} else if (mode == MODE_SCAN) {
-			touch(hot_regions + *scan_pos % cold, (r >> 32) % REGION_PAGES);
+			touch(hot_regions + *scan_pos % cold,
+			      (r >> 32) % REGION_PAGES);
 			(*scan_pos)++;
 		} else {
-			touch(hot_regions + (r >> 8) % cold, (r >> 32) % REGION_PAGES);
+			touch(hot_regions + (r >> 8) % cold,
+			      (r >> 32) % REGION_PAGES);
 		}
 	}
 }
@@ -91,12 +95,12 @@ static void guest_code(void)
 	GUEST_DONE();
 }
 
-static const char * const vm_stats[] = {
+static const char *const vm_stats[] = {
 	"mmu_cache_miss", "mmu_shadow_zapped", "mmu_recycled",
-	"lru_hand_steps", "lru_ref_skips", "lru_age_sptes", "lru_age_skips",
-	"lru_age_flushes",
+	"lru_hand_steps", "lru_ref_skips",     "lru_age_sptes",
+	"lru_age_skips",  "lru_age_flushes",   "lru_fifo_fallbacks",
 };
-static const char * const vcpu_stats[] = { "pf_taken", "pf_fixed" };
+static const char *const vcpu_stats[] = { "pf_taken", "pf_fixed" };
 
 static uint64_t vcpu_get_stat(int fd, struct kvm_stats_header *header,
 			      struct kvm_stats_desc *descs, const char *name)
@@ -128,8 +132,13 @@ static void read_stats(struct kvm_vm *vm, struct kvm_vcpu *vcpu, uint64_t *out)
 		descs = read_stats_descriptors(fd, &header);
 	}
 
-	for (i = 0; i < ARRAY_SIZE(vm_stats); i++)
-		out[j++] = vm_get_stat(vm, vm_stats[i]);
+	/* __vm_get_stat() leaves @v alone when the stat is absent. */
+	for (i = 0; i < ARRAY_SIZE(vm_stats); i++) {
+		uint64_t v = 0;
+
+		__vm_get_stat(vm, vm_stats[i], &v, 1);
+		out[j++] = v;
+	}
 	for (i = 0; i < ARRAY_SIZE(vcpu_stats); i++)
 		out[j++] = vcpu_get_stat(fd, &header, descs, vcpu_stats[i]);
 }
@@ -153,7 +162,8 @@ static void help(char *name)
 {
 	puts("");
 	printf("usage: %s [-m hot|scan|loop] [-r regions] [-H hot_regions]\n"
-	       "          [-p hot_pct] [-w warmup] [-n accesses] [-s seed]\n", name);
+	       "          [-p hot_pct] [-w warmup] [-n accesses] [-s seed]\n",
+	       name);
 	puts("");
 	exit(0);
 }
@@ -179,21 +189,35 @@ int main(int argc, char *argv[])
 			else
 				help(argv[0]);
 			break;
-		case 'r': nr_regions = atoi_positive("regions", optarg); break;
-		case 'H': hot_regions = atoi_positive("hot regions", optarg); break;
-		case 'p': hot_pct = atoi_non_negative("hot percent", optarg); break;
-		case 'w': nr_warmup = atoi_non_negative("warmup", optarg); break;
-		case 'n': nr_measure = atoi_positive("accesses", optarg); break;
-		case 's': seed = atoi_positive("seed", optarg); break;
-		default: help(argv[0]);
+		case 'r':
+			nr_regions = atoi_positive("regions", optarg);
+			break;
+		case 'H':
+			hot_regions = atoi_positive("hot regions", optarg);
+			break;
+		case 'p':
+			hot_pct = atoi_non_negative("hot percent", optarg);
+			break;
+		case 'w':
+			nr_warmup = atoi_non_negative("warmup", optarg);
+			break;
+		case 'n':
+			nr_measure = atoi_positive("accesses", optarg);
+			break;
+		case 's':
+			seed = atoi_positive("seed", optarg);
+			break;
+		default:
+			help(argv[0]);
 		}
 	}
 	TEST_ASSERT(hot_regions < nr_regions && hot_pct <= 100, "bad hot set");
 
 	/* Passing the test region's size reserves slot 0 space for its page tables. */
-	vm = __vm_create_with_one_vcpu(&vcpu, nr_regions * REGION_PAGES, guest_code);
-	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS, TEST_GPA, TEST_SLOT,
-				    nr_regions * REGION_PAGES, 0);
+	vm = __vm_create_with_one_vcpu(&vcpu, nr_regions * REGION_PAGES,
+				       guest_code);
+	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS, TEST_GPA,
+				    TEST_SLOT, nr_regions * REGION_PAGES, 0);
 	virt_map(vm, TEST_GVA, TEST_GPA, nr_regions * REGION_PAGES);
 
 	sync_global_to_guest(vm, nr_regions);
@@ -224,11 +248,14 @@ int main(int argc, char *argv[])
 
 	/* KVM stats only go up; a drop means the before/after reads are wrong. */
 	for (i = 0; i < ARRAY_SIZE(before); i++)
-		TEST_ASSERT(after[i] >= before[i], "stat %d went down: %lu -> %lu",
-			    i, before[i], after[i]);
+		TEST_ASSERT(after[i] >= before[i],
+			    "stat %d went down: %lu -> %lu", i, before[i],
+			    after[i]);
 
 	printf("RESULT mode=%s regions=%lu hot=%lu hot_pct=%lu n=%lu seed=%lu",
-	       mode == MODE_HOT ? "hot" : mode == MODE_SCAN ? "scan" : "loop",
+	       mode == MODE_HOT	 ? "hot" :
+	       mode == MODE_SCAN ? "scan" :
+				   "loop",
 	       nr_regions, hot_regions, hot_pct, nr_measure, seed);
 	print_param("lru_mmu");
 	print_param("lru_age");
@@ -237,7 +264,8 @@ int main(int argc, char *argv[])
 		printf(" %s=%lu", vm_stats[i], after[i] - before[i]);
 	for (i = 0; i < ARRAY_SIZE(vcpu_stats); i++)
 		printf(" %s=%lu", vcpu_stats[i],
-		       after[ARRAY_SIZE(vm_stats) + i] - before[ARRAY_SIZE(vm_stats) + i]);
+		       after[ARRAY_SIZE(vm_stats) + i] -
+			       before[ARRAY_SIZE(vm_stats) + i]);
 	printf("\n");
 
 	kvm_vm_free(vm);

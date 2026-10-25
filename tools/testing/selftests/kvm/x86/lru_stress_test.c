@@ -60,6 +60,7 @@ static uint64_t sync_every = 2000;
 static uint64_t seed = 1;
 static int nr_vcpus = 4;
 static int duration = 300;
+static int window = 30;		/* each vCPU must report progress within this many seconds */
 
 static volatile bool stop;
 static uint64_t vcpu_iters[MAX_VCPUS];
@@ -252,7 +253,7 @@ static void help(char *name)
 {
 	puts("");
 	printf("usage: %s [-v vcpus] [-d seconds] [-r regions] [-H hot_regions] [-p hot_pct]\n"
-	       "          [-k pages_per_region] [-s seed]\n", name);
+	       "          [-k pages_per_region] [-s seed] [-w progress_window_seconds]\n", name);
 	puts("");
 	exit(0);
 }
@@ -267,7 +268,7 @@ int main(int argc, char *argv[])
 	struct kvm_vm *vm;
 	int opt;
 
-	while ((opt = getopt(argc, argv, "hv:d:r:H:p:k:s:")) != -1) {
+	while ((opt = getopt(argc, argv, "hv:d:r:H:p:k:s:w:")) != -1) {
 		switch (opt) {
 		case 'v': nr_vcpus = atoi_positive("vcpus", optarg); break;
 		case 'd': duration = atoi_positive("seconds", optarg); break;
@@ -276,6 +277,7 @@ int main(int argc, char *argv[])
 		case 'p': hot_pct = atoi_non_negative("hot percent", optarg); break;
 		case 'k': pages_per_region = atoi_positive("pages per region", optarg); break;
 		case 's': seed = atoi_positive("seed", optarg); break;
+		case 'w': window = atoi_positive("window", optarg); break;
 		default: help(argv[0]);
 		}
 	}
@@ -310,16 +312,16 @@ int main(int argc, char *argv[])
 		pthread_create(&host_threads[i], NULL, host_fns[i], vm);
 
 	/* Every vCPU must keep making progress: no hang, no livelock. */
-	for (int t = 0; t < duration; t += 30) {
+	for (int t = 0; t < duration; t += window) {
 		for (i = 0; i < nr_vcpus; i++)
 			before[i] = READ_ONCE(vcpu_iters[i]);
-		sleep(30);
-		printf("t=%d iters", t + 30);
+		sleep(window);
+		printf("t=%d iters", t + window);
 		for (i = 0; i < nr_vcpus; i++)
 			printf(" %lu", READ_ONCE(vcpu_iters[i]));
 		printf(" ops %lu %lu %lu %lu %lu\n", ops[0], ops[1], ops[2], ops[3], ops[4]);
 		for (i = 0; i < nr_vcpus; i++)
-			TEST_ASSERT(READ_ONCE(vcpu_iters[i]) > before[i], "vCPU %lu made no progress in 30 s", i);
+			TEST_ASSERT(READ_ONCE(vcpu_iters[i]) > before[i], "vCPU %lu made no progress in %d s", i, window);
 	}
 
 	WRITE_ONCE(stop, true);
