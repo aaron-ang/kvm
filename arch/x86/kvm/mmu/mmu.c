@@ -106,7 +106,17 @@ module_param_named(lru_mmu, lru_mmu, bool, 0644);
  */
 enum { LRU_AGE_OFF, LRU_AGE_LEAF, LRU_AGE_PARENT };
 static uint __read_mostly lru_age;
-module_param_named(lru_age, lru_age, uint, 0644);
+
+static int lru_age_set(const char *val, const struct kernel_param *kp)
+{
+	return param_set_uint_minmax(val, kp, LRU_AGE_OFF, LRU_AGE_PARENT);
+}
+
+static const struct kernel_param_ops lru_age_ops = {
+	.set = lru_age_set,
+	.get = param_get_uint,
+};
+module_param_cb(lru_age, &lru_age_ops, &lru_age, 0644);
 
 /* 0: size the shadow page pool from guest memory, as upstream; else pin it. */
 ulong __read_mostly shadow_min_alloc_pages;
@@ -2710,14 +2720,15 @@ static bool kvm_mmu_sp_test_and_clear_young(struct kvm *kvm,
  * entries in active_mmu_pages, and zapping only shrinks the list.
  *
  * lru_age is writable at runtime; read it once so that the budget and every
- * visit in one sweep agree on the number of signals.
+ * visit in one sweep agree on the number of signals.  Without hardware
+ * Accessed bits there is no second signal, and no third lap.
  */
 static unsigned long kvm_mmu_clock_zap_pages(struct kvm *kvm,
 					     unsigned long nr_to_zap,
 					     struct list_head *invalid_list,
 					     bool *aged)
 {
-	uint age = READ_ONCE(lru_age);
+	uint age = shadow_accessed_mask ? READ_ONCE(lru_age) : LRU_AGE_OFF;
 	unsigned long budget = (age ? 3 : 2) * kvm->arch.n_used_mmu_pages;
 	unsigned long total_zapped = 0;
 	struct kvm_mmu_page *sp;
