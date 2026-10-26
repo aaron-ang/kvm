@@ -132,13 +132,8 @@ static void read_stats(struct kvm_vm *vm, struct kvm_vcpu *vcpu, uint64_t *out)
 		descs = read_stats_descriptors(fd, &header);
 	}
 
-	/* __vm_get_stat() leaves @v alone when the stat is absent. */
-	for (i = 0; i < ARRAY_SIZE(vm_stats); i++) {
-		uint64_t v = 0;
-
-		__vm_get_stat(vm, vm_stats[i], &v, 1);
-		out[j++] = v;
-	}
+	for (i = 0; i < ARRAY_SIZE(vm_stats); i++)
+		out[j++] = vm_get_stat(vm, vm_stats[i]);
 	for (i = 0; i < ARRAY_SIZE(vcpu_stats); i++)
 		out[j++] = vcpu_get_stat(fd, &header, descs, vcpu_stats[i]);
 }

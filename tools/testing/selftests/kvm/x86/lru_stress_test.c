@@ -284,6 +284,8 @@ int main(int argc, char *argv[])
 	TEST_ASSERT(nr_vcpus <= MAX_VCPUS, "too many vCPUs");
 	TEST_ASSERT(hot_regions < nr_regions && hot_pct <= 100, "bad hot set");
 	TEST_ASSERT(REGION_PAGES % pages_per_region == 0, "bad pages per region");
+	/* The progress loop runs whole windows, so -d must be a multiple of -w. */
+	TEST_ASSERT(duration % window == 0, "seconds (-d) not a multiple of window (-w)");
 	area_pages = nr_regions * REGION_PAGES;
 	nr_used = nr_regions * pages_per_region;
 

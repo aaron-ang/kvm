@@ -77,6 +77,7 @@ static uint64_t hot_zaps, hot_installs;
 static uint64_t trace_seq = 2; /* event order; 1 = before tracing */
 static uint64_t *zap_seq; /* per hot region: last zap of its shadow page */
 static uint64_t *install_seq; /* per hot used page: last SPTE install */
+static const char *trace_mounted; /* tracefs mount point, if this test mounted it */
 
 static uint64_t next_rand(uint64_t *s)
 {
@@ -273,6 +274,8 @@ static void trace_stop(void)
 		close(trace_fd);
 	if (rmdir(trace_inst))
 		fprintf(stderr, "rmdir %s: %s\n", trace_inst, strerror(errno));
+	if (trace_mounted && umount(trace_mounted))
+		fprintf(stderr, "umount %s: %s\n", trace_mounted, strerror(errno));
 }
 
 /*
@@ -282,7 +285,9 @@ static void trace_stop(void)
  *
  * The events go to a private tracefs instance with its own buffer, enables
  * and filters: other tracing on the host cannot fill its buffer, and nothing
- * stays enabled after the test exits.
+ * stays enabled after the test exits.  The filters match gfns, not VMs, so
+ * another shadow-paging VM on the same host can add events; run the test
+ * alone.
  */
 static void trace_start(struct kvm_vm *vm)
 {
@@ -293,9 +298,11 @@ static void trace_start(struct kvm_vm *vm)
 	if (access("/sys/kernel/tracing/instances", F_OK)) {
 		if (!access("/sys/kernel/debug/tracing/instances", F_OK))
 			root = "/sys/kernel/debug/tracing";
-		else
+		else {
 			TEST_ASSERT(!mount("tracefs", root, "tracefs", 0, NULL),
 				    "mount tracefs");
+			trace_mounted = root;
+		}
 	}
 	snprintf(trace_inst, sizeof(trace_inst), "%s/instances/lru_reclaim_test",
 		 root);
@@ -309,7 +316,12 @@ static void trace_start(struct kvm_vm *vm)
 	install_seq =
 		calloc(hot_regions * pages_per_region, sizeof(*install_seq));
 	TEST_ASSERT(pt_gfn && region_zaps && zap_seq && install_seq, "calloc");
-	/* Warmup touched every used page: count them as installed before tracing. */
+	/*
+	 * Warmup touched every used page: count them as installed before tracing.
+	 * A hot page whose shadow page was zapped during warmup, untraced, still
+	 * counts as present until its next traced install or zap; counting starts
+	 * at boundary 2, after one traced interval, to shrink that window.
+	 */
 	for (r = 0; r < hot_regions * pages_per_region; r++)
 		install_seq[r] = 1;
 	for (r = 0; r < hot_regions; r++) {
@@ -446,12 +458,10 @@ static void read_vmstat(uint64_t *out)
 	fclose(f);
 }
 
-/* lru_zap_marks exists only with the lru_zap_accessed validation knob; absent reads 0. */
 static const char *const vm_stats[] = {
 	"mmu_cache_miss", "mmu_shadow_zapped", "mmu_recycled",
 	"lru_hand_steps", "lru_ref_skips",     "lru_age_sptes",
 	"lru_age_skips",  "lru_age_flushes",   "lru_fifo_fallbacks",
-	"lru_zap_marks",
 };
 static const char *const vcpu_stats[] = { "pf_taken", "pf_fixed" };
 #define NR_STATS (ARRAY_SIZE(vm_stats) + ARRAY_SIZE(vcpu_stats))
@@ -486,12 +496,8 @@ static void read_stats(struct kvm_vm *vm, struct kvm_vcpu *vcpu, uint64_t *out)
 		descs = read_stats_descriptors(fd, &header);
 	}
 
-	for (i = 0; i < ARRAY_SIZE(vm_stats); i++) {
-		uint64_t v = 0;
-
-		__vm_get_stat(vm, vm_stats[i], &v, 1);
-		out[j++] = v;
-	}
+	for (i = 0; i < ARRAY_SIZE(vm_stats); i++)
+		out[j++] = vm_get_stat(vm, vm_stats[i]);
 	for (i = 0; i < ARRAY_SIZE(vcpu_stats); i++)
 		out[j++] = vcpu_get_stat(fd, &header, descs, vcpu_stats[i]);
 }
@@ -697,7 +703,6 @@ int main(int argc, char *argv[])
 	       pages_per_region, nr_warmup, nr_intervals, interval_len, seed);
 	print_param("lru_mmu");
 	print_param("lru_age");
-	print_param("lru_zap_accessed");
 	print_param("min_alloc_pages");
 	for (i = 0; i < ARRAY_SIZE(vm_stats); i++)
 		printf(" %s=%lu", vm_stats[i], after[i] - before[i]);
